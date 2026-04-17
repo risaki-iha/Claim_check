@@ -161,37 +161,34 @@ C0ABRS7NR27（通知チャンネル）を `mcp__claude_ai_Slack__slack_read_chan
 #### 検知なしの場合
 `mcp__claude_ai_Slack__slack_send_message` で C0ABRS7NR27 に以下を即送信する:
 ```
-*【リアルタイムテスト中】*
-⚡ *クレーム検知くん リアルタイム — YYYY/MM/DD HH:MM〜HH:MM*
+【リアルタイムテスト中】
+⚡ クレーム検知くん リアルタイム — YYYY/MM/DD HH:MM〜HH:MM
 検知なし ✅
 ```
 
 #### 検知ありの場合
 
-`mcp__claude_ai_Slack__slack_send_message` で C0ABRS7NR27 に**即送信**する（下書きではない）。
+`mcp__claude_ai_Slack__slack_send_message` で C0ABRS7NR27 に即送信する（下書きではない）。
 
-送信時は `<URL|テキスト>` 形式のリンクをそのまま維持すること（プレーンURLに変換しない）。
+**重要: slack_send_message では `*太字*` や `**太字**` の書式を絶対に使わないこと。プレーンテキストのみで送信する。`<URL|テキスト>` 形式のリンクはそのまま維持する。**
 
 ```
-*【リアルタイムテスト中】*
-⚡ *クレーム検知くん リアルタイム — YYYY/MM/DD HH:MM〜HH:MM*
+【リアルタイムテスト中】
+⚡ クレーム検知くん リアルタイム — YYYY/MM/DD HH:MM〜HH:MM
 検知: N件 ｜ 🔴 N件 ｜ 🟡 N件 ｜ 🔵 N件
 📋 詳細・ステータス管理: <https://docs.google.com/spreadsheets/d/1NYuYHOCUM-Uog5VySQ5OiAVkB5HE6_BmYPKpuELqKWI/edit?gid=419769240#gid=419769240|AI検知ログを確認する>
 
----
-*🔴 即対応・上長報告 (N件)*
+🔴 即対応・上長報告 (N件)
 
-*チャンネル名*
+チャンネル名
 └ 概要: （スレッドの文脈を踏まえた1〜2行の要約）
 └ アクション: （推奨アクション）
 └ 🔗 <Slack URL|スレッドを見る>
 
----
-*🟡 要対応・要確認 (N件)*
+🟡 要対応・要確認 (N件)
 ...
 
----
-*🔵 情報共有 (N件)*
+🔵 情報共有 (N件)
 ...
 ```
 
