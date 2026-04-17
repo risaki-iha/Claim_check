@@ -159,7 +159,12 @@ C0ABRS7NR27（通知チャンネル）を `mcp__claude_ai_Slack__slack_read_chan
 ### Phase 4: 出力
 
 #### 検知なしの場合
-何もしない（Slack通知・Sheets記録ともに不要）。
+`mcp__claude_ai_Slack__slack_send_message` で C0ABRS7NR27 に以下を即送信する:
+```
+*【リアルタイムテスト中】*
+⚡ *クレーム検知くん リアルタイム — YYYY/MM/DD HH:MM〜HH:MM*
+検知なし ✅
+```
 
 #### 検知ありの場合
 
