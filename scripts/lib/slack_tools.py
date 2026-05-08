@@ -35,8 +35,11 @@ class SlackTools:
         Slack の search.messages を叩く。User Token 必須。
         after/before は Unix秒（JST解釈は呼び出し元）
         """
+        # Slackのsearch構文 after:/before: は exclusive（その日「より後/前」）。
+        # 同日範囲だと何もヒットしないため、afterは1日前/beforeは1日後でクエリし、
+        # 実際の絞り込みは戻り値の ts で行う。
         full_query = (
-            f"{query} after:{_ymd(after_ts)} before:{_ymd(before_ts)} -is:bot"
+            f"{query} after:{_ymd(after_ts, -1)} before:{_ymd(before_ts, 1)} -is:bot"
         )
         try:
             resp = self.search_client.search_messages(query=full_query, count=limit, sort="timestamp")
@@ -107,7 +110,9 @@ class SlackTools:
             return {}
 
 
-def _ymd(ts: int) -> str:
-    """Unix秒 → YYYY-MM-DD（JST）"""
+def _ymd(ts: int, offset_days: int = 0) -> str:
+    """Unix秒 → YYYY-MM-DD（JST）。offset_days で前後にずらせる。"""
     from datetime import datetime, timezone, timedelta
-    return datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=9))).strftime("%Y-%m-%d")
+    return (
+        datetime.fromtimestamp(ts, tz=timezone(timedelta(hours=9))) + timedelta(days=offset_days)
+    ).strftime("%Y-%m-%d")
