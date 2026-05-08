@@ -59,12 +59,25 @@ class SlackTools:
         return out
 
     def read_thread(self, channel: str, thread_ts: str) -> list[dict]:
+        # User Token を優先（Botがチャンネル未参加でも、Userが参加してれば読める）
         try:
-            resp = self.client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+            resp = self.search_client.conversations_replies(
+                channel=channel, ts=thread_ts, limit=200
+            )
             return resp.get("messages", []) or []
         except SlackApiError as e:
-            print(f"[read_thread error] {channel}/{thread_ts}: {e.response['error']}", flush=True)
-            return []
+            # User Token で読めなければ Bot Token にフォールバック
+            try:
+                resp = self.client.conversations_replies(
+                    channel=channel, ts=thread_ts, limit=200
+                )
+                return resp.get("messages", []) or []
+            except SlackApiError as e2:
+                print(
+                    f"[read_thread error] {channel}/{thread_ts}: user={e.response['error']} bot={e2.response['error']}",
+                    flush=True,
+                )
+                return []
 
     def read_user_profile(self, user_id: str) -> dict:
         try:
@@ -81,12 +94,17 @@ class SlackTools:
             return {"id": user_id, "name": "", "email": ""}
 
     def read_channel_recent(self, channel: str, limit: int = 50) -> list[dict]:
+        # User Token を優先、ダメなら Bot Token
         try:
-            resp = self.client.conversations_history(channel=channel, limit=limit)
+            resp = self.search_client.conversations_history(channel=channel, limit=limit)
             return resp.get("messages", []) or []
-        except SlackApiError as e:
-            print(f"[read_channel error] {channel}: {e.response['error']}", flush=True)
-            return []
+        except SlackApiError:
+            try:
+                resp = self.client.conversations_history(channel=channel, limit=limit)
+                return resp.get("messages", []) or []
+            except SlackApiError as e:
+                print(f"[read_channel error] {channel}: {e.response['error']}", flush=True)
+                return []
 
     def post_message(self, channel: str, text: str) -> dict:
         try:
