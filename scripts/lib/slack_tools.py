@@ -6,6 +6,7 @@ import os
 import time
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 
 class SlackTools:
@@ -18,6 +19,10 @@ class SlackTools:
 
         self.client = WebClient(token=bot_token)
         self.search_client = WebClient(token=user_token) if user_token else self.client
+        # search.messages はレート制限が厳しいので自動リトライを有効化
+        retry_handler = RateLimitErrorRetryHandler(max_retry_count=3)
+        self.search_client.retry_handlers.append(retry_handler)
+        self.client.retry_handlers.append(retry_handler)
 
     def search(
         self,
@@ -38,6 +43,8 @@ class SlackTools:
         except SlackApiError as e:
             print(f"[search error] {query}: {e.response['error']}", flush=True)
             return []
+        # 念のため呼び出し間に小休止（連続呼び出しで rate limit に当たる事故予防）
+        time.sleep(1.0)
 
         matches = resp.get("messages", {}).get("matches", []) or []
         # ts 範囲で再フィルタ（API の after/before は荒いため）
