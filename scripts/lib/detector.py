@@ -79,6 +79,15 @@ def run_detection(config: DetectorConfig) -> None:
 
 def determine_search_range(slack: SlackTools, config: DetectorConfig) -> tuple[int, int]:
     """前回通知メッセージの終了時刻を抽出して after に設定"""
+    import os
+    # 手動指定があればそれを優先（JST文字列 "YYYY-MM-DD HH:MM"）
+    custom_after = (os.environ.get("CUSTOM_AFTER") or "").strip()
+    custom_before = (os.environ.get("CUSTOM_BEFORE") or "").strip()
+    if custom_after and custom_before:
+        af = int(datetime.strptime(custom_after, "%Y-%m-%d %H:%M").replace(tzinfo=JST).timestamp())
+        bf = int(datetime.strptime(custom_before, "%Y-%m-%d %H:%M").replace(tzinfo=JST).timestamp())
+        return af, bf
+
     now_ts = int(datetime.now(JST).timestamp())
     messages = slack.read_channel_recent(config.notification_channel, limit=30)
 
