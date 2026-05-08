@@ -10,7 +10,7 @@ from slack_sdk.errors import SlackApiError
 
 class SlackTools:
     def __init__(self):
-        token = os.environ.get("SLACK_BOT_TOKEN")
+        token = os.environ.get("SLACK_BOT_TOKEN", "").lstrip("﻿").strip()
         if not token:
             raise RuntimeError("SLACK_BOT_TOKEN 環境変数が必要")
         self.client = WebClient(token=token)

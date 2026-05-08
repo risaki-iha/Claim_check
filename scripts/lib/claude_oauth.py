@@ -37,8 +37,8 @@ class ClaudeClient:
     """
 
     def __init__(self):
-        self.refresh_token = os.environ.get("CLAUDE_REFRESH_TOKEN")
-        self.api_key = os.environ.get("ANTHROPIC_API_KEY")
+        self.refresh_token = (os.environ.get("CLAUDE_REFRESH_TOKEN") or "").lstrip("﻿").strip() or None
+        self.api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").lstrip("﻿").strip() or None
         self._access_token = None
         self._access_token_expires_at = 0
 
