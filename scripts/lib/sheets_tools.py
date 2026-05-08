@@ -34,7 +34,8 @@ class SheetsTools:
         if not sa_json:
             raise RuntimeError("GOOGLE_SHEETS_KEY 環境変数が必要（サービスアカウント JSON）")
 
-        creds_dict = json.loads(sa_json)
+        # 先頭に BOM (﻿) が混入している場合があるので除去
+        creds_dict = json.loads(sa_json.lstrip("﻿"))
         creds = Credentials.from_service_account_info(
             creds_dict,
             scopes=[
