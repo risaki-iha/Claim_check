@@ -10,10 +10,14 @@ from slack_sdk.errors import SlackApiError
 
 class SlackTools:
     def __init__(self):
-        token = os.environ.get("SLACK_BOT_TOKEN", "").lstrip("﻿").strip()
-        if not token:
+        bot_token = os.environ.get("SLACK_BOT_TOKEN", "").lstrip("﻿").strip()
+        if not bot_token:
             raise RuntimeError("SLACK_BOT_TOKEN 環境変数が必要")
-        self.client = WebClient(token=token)
+        # search.messages は User Token (xoxp-) でしか動かないため別クライアント
+        user_token = os.environ.get("SLACK_USER_TOKEN", "").lstrip("﻿").strip()
+
+        self.client = WebClient(token=bot_token)
+        self.search_client = WebClient(token=user_token) if user_token else self.client
 
     def search(
         self,
@@ -23,15 +27,14 @@ class SlackTools:
         limit: int = 20,
     ) -> list[dict]:
         """
-        Slack の search.messages を叩く。
+        Slack の search.messages を叩く。User Token 必須。
         after/before は Unix秒（JST解釈は呼び出し元）
         """
-        # search API は after/before を YYYY-MM-DD で受け取るので変換
         full_query = (
             f"{query} after:{_ymd(after_ts)} before:{_ymd(before_ts)} -is:bot"
         )
         try:
-            resp = self.client.search_messages(query=full_query, count=limit, sort="timestamp")
+            resp = self.search_client.search_messages(query=full_query, count=limit, sort="timestamp")
         except SlackApiError as e:
             print(f"[search error] {query}: {e.response['error']}", flush=True)
             return []
