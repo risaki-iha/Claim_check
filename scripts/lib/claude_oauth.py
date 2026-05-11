@@ -12,6 +12,11 @@ amptalk-risk-detection と同じ仕組み。
 - Authorization: Bearer <access_token> で Messages API を叩く
 - access_token は一定時間有効（expires_in 秒）
 
+自動ローテーション:
+- OAuth refresh で新 refresh_token を受け取った場合、self.refresh_token を更新する
+- 呼び出し側（detector.py）が get_current_refresh_token() で最新値を取り出し、
+  GITHUB_OUTPUT 経由で workflow の後続 Step に渡して Secret 書き戻しさせる
+
 フォールバック:
 - ANTHROPIC_API_KEY が設定されてればそちらを使う（従量課金）
 """
@@ -79,6 +84,7 @@ class ClaudeClient:
         self._access_token_expires_at = time.time() + data.get("expires_in", 3600) - 60
 
         # refresh_token がローテーションされる場合は新しい値を採用
+        # 呼び出し側が get_current_refresh_token() で取り出して GITHUB_OUTPUT に書く想定
         new_refresh = data.get("refresh_token")
         if new_refresh:
             self.refresh_token = new_refresh
@@ -153,6 +159,6 @@ class ClaudeClient:
             delay *= 2
         return resp
 
-    def get_current_refresh_token(self) -> str:
+    def get_current_refresh_token(self) -> str | None:
         """ローテーションされた最新の refresh_token を返す（GitHub Secrets 更新用）"""
         return self.refresh_token

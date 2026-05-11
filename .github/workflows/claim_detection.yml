@@ -35,6 +35,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run detection
+        id: detect
         env:
           CLAUDE_REFRESH_TOKEN: ${{ secrets.CLAUDE_REFRESH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -44,3 +45,17 @@ jobs:
           CUSTOM_AFTER: ${{ github.event.inputs.custom_after }}
           CUSTOM_BEFORE: ${{ github.event.inputs.custom_before }}
         run: python scripts/run_claim_detection.py
+
+      - name: Rotate CLAUDE_REFRESH_TOKEN
+        # 検知本体が失敗してもローテ済トークンが取れていれば書き戻す（次回の保険）
+        if: always() && steps.detect.outputs.new_refresh_token != ''
+        env:
+          GH_TOKEN: ${{ secrets.PAT_FOR_SECRETS }}
+          NEW_TOKEN: ${{ steps.detect.outputs.new_refresh_token }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::PAT_FOR_SECRETS 未設定のためトークン書き戻しをスキップ"
+            exit 0
+          fi
+          printf '%s' "$NEW_TOKEN" | gh secret set CLAUDE_REFRESH_TOKEN --repo "${{ github.repository }}"
+          echo "✅ CLAUDE_REFRESH_TOKEN を書き戻しました"

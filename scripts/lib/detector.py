@@ -8,6 +8,7 @@
 """
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -32,47 +33,66 @@ class DetectorConfig:
 
 
 def run_detection(config: DetectorConfig) -> None:
-    slack = SlackTools()
-    sheets = SheetsTools()
     claude = ClaudeClient()
-    skill_content = config.skill_path.read_text(encoding="utf-8")
+    try:
+        slack = SlackTools()
+        sheets = SheetsTools()
+        skill_content = config.skill_path.read_text(encoding="utf-8")
 
-    # 1. 検索範囲決定
-    after_ts, before_ts = determine_search_range(slack, config)
-    print(
-        f"[range] {fmt_ts(after_ts)} 〜 {fmt_ts(before_ts)}",
-        flush=True,
-    )
+        # 1. 検索範囲決定
+        after_ts, before_ts = determine_search_range(slack, config)
+        print(
+            f"[range] {fmt_ts(after_ts)} 〜 {fmt_ts(before_ts)}",
+            flush=True,
+        )
 
-    # 2. キーワード検索
-    candidates = search_all_groups(slack, config.keyword_groups, after_ts, before_ts)
-    print(f"[search] {len(candidates)} hits", flush=True)
+        # 2. キーワード検索
+        candidates = search_all_groups(slack, config.keyword_groups, after_ts, before_ts)
+        print(f"[search] {len(candidates)} hits", flush=True)
 
-    # 3. チャンネルフィルター + デデュプ
-    threads = filter_and_dedupe(candidates)
-    print(f"[filter] {len(threads)} threads after filter", flush=True)
+        # 3. チャンネルフィルター + デデュプ
+        threads = filter_and_dedupe(candidates)
+        print(f"[filter] {len(threads)} threads after filter", flush=True)
 
-    # 4. スレッド取得 + ユーザープロフィール
-    enriched = enrich_threads(slack, threads)
-    print(f"[enrich] {len(enriched)} threads enriched", flush=True)
+        # 4. スレッド取得 + ユーザープロフィール
+        enriched = enrich_threads(slack, threads)
+        print(f"[enrich] {len(enriched)} threads enriched", flush=True)
 
-    # 5. AI 判定
-    if enriched:
-        results = evaluate_with_claude(claude, enriched, skill_content, config)
-    else:
-        results = []
-    print(f"[evaluate] {len(results)} detections after AI", flush=True)
+        # 5. AI 判定
+        if enriched:
+            results = evaluate_with_claude(claude, enriched, skill_content, config)
+        else:
+            results = []
+        print(f"[evaluate] {len(results)} detections after AI", flush=True)
 
-    # 6. Slack 通知送信
-    notification_text = build_notification_text(config, results, after_ts, before_ts)
-    slack.post_message(config.notification_channel, notification_text)
-    print("[notify] posted", flush=True)
+        # 6. Slack 通知送信
+        notification_text = build_notification_text(config, results, after_ts, before_ts)
+        slack.post_message(config.notification_channel, notification_text)
+        print("[notify] posted", flush=True)
 
-    # 7. スプシ書き込み
-    if results:
-        rows = build_sheet_rows(results, config)
-        appended = sheets.append_rows(rows)
-        print(f"[sheets] appended {appended} rows", flush=True)
+        # 7. スプシ書き込み
+        if results:
+            rows = build_sheet_rows(results, config)
+            appended = sheets.append_rows(rows)
+            print(f"[sheets] appended {appended} rows", flush=True)
+    finally:
+        # 検知の成功/失敗に関わらず、ローテーション済みの最新 refresh_token を
+        # GITHUB_OUTPUT に書き出す。次のWorkflow Stepが拾って Secret に書き戻す。
+        _emit_refresh_token_output(claude.get_current_refresh_token())
+
+
+def _emit_refresh_token_output(token: str | None) -> None:
+    """OAuthローテ済みの最新 refresh_token を GITHUB_OUTPUT に書き出す。"""
+    if not token:
+        return
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if not output_path:
+        return  # ローカル実行時はスキップ
+    # ログに値が出ないようマスク登録
+    print(f"::add-mask::{token}", flush=True)
+    with open(output_path, "a", encoding="utf-8") as f:
+        f.write(f"new_refresh_token={token}\n")
+    print("[oauth] 🔁 GITHUB_OUTPUT に new_refresh_token を書き出した", flush=True)
 
 
 # ---------- 検索範囲 ----------
