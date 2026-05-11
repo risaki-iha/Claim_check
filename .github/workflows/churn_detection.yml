@@ -41,6 +41,8 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
           GOOGLE_SHEETS_KEY: ${{ secrets.GOOGLE_SHEETS_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_REPO: ${{ github.repository }}
           CUSTOM_AFTER: ${{ github.event.inputs.custom_after }}
           CUSTOM_BEFORE: ${{ github.event.inputs.custom_before }}
         run: python scripts/run_churn_detection.py

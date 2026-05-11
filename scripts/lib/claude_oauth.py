@@ -12,11 +12,17 @@ amptalk-risk-detection と同じ仕組み。
 - Authorization: Bearer <access_token> で Messages API を叩く
 - access_token は一定時間有効（expires_in 秒）
 
+自動ローテーション:
+- OAuth refresh で新 refresh_token を受け取ったら、環境変数 GH_PAT を使って
+  GitHub Secret CLAUDE_REFRESH_TOKEN を上書き更新する（gh CLI 経由）
+- GH_PAT 未設定なら警告ログを出して続行（ローカル実行など）
+
 フォールバック:
 - ANTHROPIC_API_KEY が設定されてればそちらを使う（従量課金）
 """
 
 import os
+import subprocess
 import time
 import requests
 
@@ -24,6 +30,8 @@ OAUTH_TOKEN_URL = "https://api.anthropic.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+GH_SECRET_NAME = "CLAUDE_REFRESH_TOKEN"
+GH_DEFAULT_REPO = "risaki-iha/Claim_check"
 
 
 class ClaudeAuthError(Exception):
@@ -80,8 +88,41 @@ class ClaudeClient:
 
         # refresh_token がローテーションされる場合は新しい値を採用
         new_refresh = data.get("refresh_token")
-        if new_refresh:
+        if new_refresh and new_refresh != self.refresh_token:
             self.refresh_token = new_refresh
+            self._persist_refresh_token(new_refresh)
+
+    def _persist_refresh_token(self, new_token: str) -> None:
+        """新 refresh_token を GitHub Secret に書き戻す。GH_PAT 未設定なら警告のみ。"""
+        gh_pat = (os.environ.get("GH_PAT") or "").strip()
+        if not gh_pat:
+            print(
+                "[oauth] ⚠️  GH_PAT 未設定のため新 refresh_token を Secret に書き戻せない。"
+                "次回実行は invalid_grant で失敗する可能性。",
+                flush=True,
+            )
+            return
+
+        repo = (os.environ.get("GH_REPO") or GH_DEFAULT_REPO).strip()
+        try:
+            # gh CLI は GH_TOKEN 環境変数で認証できる
+            env = {**os.environ, "GH_TOKEN": gh_pat}
+            result = subprocess.run(
+                ["gh", "secret", "set", GH_SECRET_NAME, "--repo", repo, "--body", new_token],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                print(f"[oauth] ✅ Secret {GH_SECRET_NAME} 更新完了", flush=True)
+            else:
+                print(
+                    f"[oauth] ⚠️  Secret 更新失敗 (code={result.returncode}): {result.stderr[:200]}",
+                    flush=True,
+                )
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(f"[oauth] ⚠️  gh CLI 実行失敗: {e}", flush=True)
 
     def _ensure_access_token(self):
         if self.refresh_token and (
