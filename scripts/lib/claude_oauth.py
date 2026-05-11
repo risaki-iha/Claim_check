@@ -122,20 +122,36 @@ class ClaudeClient:
         if tools:
             body["tools"] = tools
 
-        resp = requests.post(
-            MESSAGES_URL, headers=self._build_headers(), json=body, timeout=180
-        )
+        resp = self._post_with_retry(body)
         if resp.status_code == 401 and self.refresh_token:
             # アクセストークン期限切れの可能性 → 強制リフレッシュして再試行
             self._access_token = None
-            resp = requests.post(
-                MESSAGES_URL, headers=self._build_headers(), json=body, timeout=180
-            )
+            resp = self._post_with_retry(body)
         if resp.status_code != 200:
             raise ClaudeAuthError(
                 f"Messages API failed: {resp.status_code} {resp.text[:500]}"
             )
         return resp.json()
+
+    def _post_with_retry(self, body: dict, max_retries: int = 4):
+        """429 / 5xx に対して指数バックオフでリトライ"""
+        delay = 5.0
+        for attempt in range(max_retries):
+            resp = requests.post(
+                MESSAGES_URL, headers=self._build_headers(), json=body, timeout=180
+            )
+            if resp.status_code < 500 and resp.status_code != 429:
+                return resp
+            # 429 or 5xx → リトライ
+            retry_after = resp.headers.get("retry-after")
+            sleep_for = float(retry_after) if retry_after else delay
+            print(
+                f"[claude retry] status={resp.status_code} attempt={attempt+1}/{max_retries} sleep={sleep_for}s",
+                flush=True,
+            )
+            time.sleep(sleep_for)
+            delay *= 2
+        return resp
 
     def get_current_refresh_token(self) -> str:
         """ローテーションされた最新の refresh_token を返す（GitHub Secrets 更新用）"""
