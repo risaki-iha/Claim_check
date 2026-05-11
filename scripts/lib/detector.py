@@ -373,14 +373,20 @@ def fmt_ts(ts: int) -> str:
 # ---------- スプシ行構築 ----------
 
 def build_sheet_rows(results: list[dict], config: DetectorConfig) -> list[dict]:
-    now_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     rows = []
     for r in results:
+        # 検知日時はスレッドが実発生した時刻（thread_ts = Slack Unix秒）を使う
+        thread_ts_raw = r.get("thread_ts", "")
+        try:
+            detected_str = datetime.fromtimestamp(float(thread_ts_raw), tz=JST).strftime("%Y/%m/%d %H:%M")
+        except (ValueError, TypeError):
+            detected_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+
         rows.append(
             {
                 "検知媒体": "Slack",
                 "検知内容": config.detection_type,
-                "検知日時": now_str,
+                "検知日時": detected_str,
                 "チャンネル名": r.get("channel_name", ""),
                 "重要度": r.get("importance", ""),
                 "ステータス": "",
