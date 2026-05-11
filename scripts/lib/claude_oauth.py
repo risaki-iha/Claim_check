@@ -48,16 +48,28 @@ class ClaudeClient:
             )
 
     def _refresh_access_token(self):
-        """OAuth トークンをリフレッシュ"""
+        """OAuth トークンをリフレッシュ。Anthropic OAuth エンドポイントは form-encoded を要求。"""
         resp = requests.post(
             OAUTH_TOKEN_URL,
-            json={
+            data={
                 "grant_type": "refresh_token",
                 "refresh_token": self.refresh_token,
                 "client_id": OAUTH_CLIENT_ID,
             },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=30,
         )
+        if resp.status_code != 200:
+            # JSON フォールバック（古い実装互換）
+            resp = requests.post(
+                OAUTH_TOKEN_URL,
+                json={
+                    "grant_type": "refresh_token",
+                    "refresh_token": self.refresh_token,
+                    "client_id": OAUTH_CLIENT_ID,
+                },
+                timeout=30,
+            )
         if resp.status_code != 200:
             raise ClaudeAuthError(
                 f"OAuth refresh failed: {resp.status_code} {resp.text}"
