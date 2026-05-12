@@ -33,6 +33,18 @@ class DetectorConfig:
 
 
 def run_detection(config: DetectorConfig) -> None:
+    # 営業時間外（JST 10:00 未満 or 21:00 以上）のスケジュール実行はスキップ
+    # GitHub Actions の cron 遅延で深夜に動くのを防ぐ。手動実行は対象外。
+    event = os.environ.get("GITHUB_EVENT_NAME", "")
+    now_jst = datetime.now(JST)
+    if event == "schedule" and (now_jst.hour < 10 or now_jst.hour >= 21):
+        print(
+            f"[skip] 営業時間外 ({now_jst.strftime('%H:%M')} JST) のためスキップ。"
+            f"次の営業時間の cron が前回通知から続きを検索する。",
+            flush=True,
+        )
+        return
+
     claude = ClaudeClient()
     try:
         slack = SlackTools()
