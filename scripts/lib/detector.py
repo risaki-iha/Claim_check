@@ -88,15 +88,17 @@ def run_detection(config: DetectorConfig) -> None:
             appended = sheets.append_rows(rows)
             print(f"[sheets] appended {appended} rows", flush=True)
     finally:
-        # 検知の成功/失敗に関わらず、ローテーション済みの最新 refresh_token を
-        # GITHUB_OUTPUT に書き出す。次のWorkflow Stepが拾って Secret に書き戻す。
-        _emit_refresh_token_output(claude.get_current_refresh_token())
+        # ローテーションが**実際に起きた場合だけ** GITHUB_OUTPUT に書き出す。
+        # OAuth refresh が失敗した場合（invalid_grant 等）に古いトークンを
+        # 書き戻して並行ジョブの成功結果を破壊するのを防ぐ。
+        if claude.has_token_rotated():
+            _emit_refresh_token_output(claude.get_current_refresh_token())
+        else:
+            print("[oauth] ローテ未発生のため GITHUB_OUTPUT 書き出しスキップ", flush=True)
 
 
-def _emit_refresh_token_output(token: str | None) -> None:
+def _emit_refresh_token_output(token: str) -> None:
     """OAuthローテ済みの最新 refresh_token を GITHUB_OUTPUT に書き出す。"""
-    if not token:
-        return
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
         return  # ローカル実行時はスキップ

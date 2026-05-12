@@ -43,6 +43,7 @@ class ClaudeClient:
 
     def __init__(self):
         self.refresh_token = (os.environ.get("CLAUDE_REFRESH_TOKEN") or "").lstrip("﻿").strip() or None
+        self._initial_refresh_token = self.refresh_token
         self.api_key = (os.environ.get("ANTHROPIC_API_KEY") or "").lstrip("﻿").strip() or None
         self._access_token = None
         self._access_token_expires_at = 0
@@ -51,6 +52,13 @@ class ClaudeClient:
             raise ClaudeAuthError(
                 "CLAUDE_REFRESH_TOKEN または ANTHROPIC_API_KEY のどちらかが必要"
             )
+
+    def has_token_rotated(self) -> bool:
+        """OAuth refresh が成功して新トークンを受け取った場合のみ True。"""
+        return (
+            self.refresh_token is not None
+            and self.refresh_token != self._initial_refresh_token
+        )
 
     def _refresh_access_token(self):
         """OAuth トークンをリフレッシュ。Anthropic OAuth エンドポイントは form-encoded を要求。"""
