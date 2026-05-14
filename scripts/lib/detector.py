@@ -340,7 +340,8 @@ def build_notification_text(
     config: DetectorConfig, results: list[dict], after_ts: int, before_ts: int
 ) -> str:
     period = format_period(after_ts, before_ts)
-    header = f"⚡ **Slack - {config.name}（検知期間：{period}）**"
+    # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
+    header = f"⚡ *Slack - {config.name}（検知期間：{period}）*"
 
     if not results:
         return f"{header}\n✅ 検知なし"
@@ -367,7 +368,7 @@ def build_notification_text(
             continue
         parts.append("")
         parts.append("")
-        parts.append(f"**━━ {label} ({len(items)}件) ━━**")
+        parts.append(f"*━━ {label} ({len(items)}件) ━━*")
         for i, r in enumerate(items):
             if i > 0:
                 parts.append("")
