@@ -21,6 +21,12 @@ from .sheets_tools import SheetsTools
 JST = timezone(timedelta(hours=9))
 JP_WEEKDAYS = "月火水木金土日"
 
+# 検知対象から除外する投稿者の Slack user_id
+# - 議事録転送bot（自動投稿された議事録はリアルタイム検知の対象外）
+EXCLUDED_AUTHOR_USER_IDS = {
+    "U0B305165M1",  # 議事録転送bot
+}
+
 
 @dataclass
 class DetectorConfig:
@@ -210,6 +216,7 @@ def filter_and_dedupe(messages: list[dict]) -> list[dict]:
     - チャンネル名に「社内」または「社外」を含むもののみ残す
     - thread_ts でデデュプ（一番古いものを採用）
     - mdx_, dxm_, hajimari は除外
+    - EXCLUDED_AUTHOR_USER_IDS（議事録転送bot等）からの投稿は除外
     """
     seen = {}
     for m in messages:
@@ -218,6 +225,11 @@ def filter_and_dedupe(messages: list[dict]) -> list[dict]:
         if not ("社内" in ch_name or "社外" in ch_name):
             continue
         if any(bad in ch_name for bad in ["mdx_", "dxm_", "hajimari"]):
+            continue
+
+        # 議事録転送bot等、自動投稿系のメッセージは検知対象外
+        author_id = m.get("user")
+        if author_id in EXCLUDED_AUTHOR_USER_IDS:
             continue
 
         thread_ts = m.get("thread_ts") or m.get("ts")
