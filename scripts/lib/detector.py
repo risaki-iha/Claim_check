@@ -77,16 +77,18 @@ def run_detection(config: DetectorConfig) -> None:
             results = []
         print(f"[evaluate] {len(results)} detections after AI", flush=True)
 
-        # 6. Slack 通知送信
-        notification_text = build_notification_text(config, results, after_ts, before_ts)
-        slack.post_message(config.notification_channel, notification_text)
-        print("[notify] posted", flush=True)
-
-        # 7. スプシ書き込み
+        # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
         if results:
+            notification_text = build_notification_text(config, results, after_ts, before_ts)
+            slack.post_message(config.notification_channel, notification_text)
+            print("[notify] posted", flush=True)
+
+            # 7. スプシ書き込み
             rows = build_sheet_rows(results, config)
             appended = sheets.append_rows(rows)
             print(f"[sheets] appended {appended} rows", flush=True)
+        else:
+            print("[notify] 検知0件のため通知スキップ", flush=True)
     finally:
         # ローテーションが**実際に起きた場合だけ** GITHUB_OUTPUT に書き出す。
         # OAuth refresh が失敗した場合（invalid_grant 等）に古いトークンを
