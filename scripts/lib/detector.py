@@ -276,14 +276,35 @@ def enrich_threads(slack: SlackTools, threads: list[dict]) -> list[dict]:
 
 # ---------- AI 判定 ----------
 
+EVALUATE_BATCH_SIZE = 8
+
+
 def evaluate_with_claude(
     claude: ClaudeClient, threads: list[dict], skill_content: str, config: DetectorConfig
 ) -> list[dict]:
     """
-    skill 内容を system prompt に投入。
-    threads を JSON で user メッセージとして渡す。
-    Claude は構造化された判定結果を JSON で返す。
+    skill 内容を system prompt に投入。threads を JSON で渡して構造化判定結果を受け取る。
+
+    Claude Haiku の max_tokens=8K に収まるよう EVALUATE_BATCH_SIZE 件ずつ分割して評価する。
+    1回でまとめて送ると出力が途中で切れて JSON パース失敗→0件扱いになる事故が起きるため。
     """
+    all_results: list[dict] = []
+    total_batches = (len(threads) + EVALUATE_BATCH_SIZE - 1) // EVALUATE_BATCH_SIZE
+    for batch_idx in range(0, len(threads), EVALUATE_BATCH_SIZE):
+        batch = threads[batch_idx : batch_idx + EVALUATE_BATCH_SIZE]
+        batch_no = batch_idx // EVALUATE_BATCH_SIZE + 1
+        results = _evaluate_batch(claude, batch, skill_content)
+        print(
+            f"[evaluate] batch {batch_no}/{total_batches}: {len(batch)} threads → {len(results)} hits",
+            flush=True,
+        )
+        all_results.extend(results)
+    return all_results
+
+
+def _evaluate_batch(
+    claude: ClaudeClient, threads: list[dict], skill_content: str
+) -> list[dict]:
     user_input = json.dumps(
         {
             "task": "以下のスレッドを skill の手順 (Step 5) と重要度マトリクスに従って判定し、"
@@ -328,7 +349,8 @@ def evaluate_with_claude(
     try:
         results = json.loads(text)
     except json.JSONDecodeError:
-        print(f"[evaluate] JSON parse failed. Raw output: {text[:500]}", flush=True)
+        print(f"[evaluate] JSON parse failed. Raw output (head 500): {text[:500]}", flush=True)
+        print(f"[evaluate] JSON parse failed. Raw output (tail 200): {text[-200:]}", flush=True)
         return []
 
     return [r for r in results if r.get("importance") and r.get("importance") != "NOISE"]
