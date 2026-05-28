@@ -91,7 +91,11 @@ def run_detection(config: DetectorConfig) -> None:
             try:
                 resolver.load()
             except Exception as e:
-                print(f"[supervisor] マスタスプシ読込失敗、メンション行は出さずに継続: {e}", flush=True)
+                print(
+                    f"[supervisor] マスタスプシ読込失敗、メンション行は出さずに継続: "
+                    f"{type(e).__name__}: {e!r}",
+                    flush=True,
+                )
                 resolver = None
 
             user_maps = slack.list_users() if resolver else {"by_name": {}, "by_email": {}}
