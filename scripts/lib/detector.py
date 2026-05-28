@@ -17,6 +17,7 @@ from pathlib import Path
 from .claude_oauth import ClaudeClient
 from .slack_tools import SlackTools
 from .sheets_tools import SheetsTools
+from .supervisor_map import SupervisorResolver
 
 JST = timezone(timedelta(hours=9))
 JP_WEEKDAYS = "月火水木金土日"
@@ -85,7 +86,19 @@ def run_detection(config: DetectorConfig) -> None:
 
         # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
         if results:
-            notification_text = build_notification_text(config, results, after_ts, before_ts)
+            # 上長メンション解決の準備（失敗時は【マネージャー】行を出さない）
+            resolver = SupervisorResolver()
+            try:
+                resolver.load()
+            except Exception as e:
+                print(f"[supervisor] マスタスプシ読込失敗、メンション行は出さずに継続: {e}", flush=True)
+                resolver = None
+
+            user_maps = slack.list_users() if resolver else {"by_name": {}, "by_email": {}}
+
+            notification_text = build_notification_text(
+                config, results, after_ts, before_ts, resolver, user_maps
+            )
             slack.post_message(config.notification_channel, notification_text)
             print("[notify] posted", flush=True)
 
@@ -373,7 +386,12 @@ def _evaluate_batch(
 # ---------- Slack 通知整形 ----------
 
 def build_notification_text(
-    config: DetectorConfig, results: list[dict], after_ts: int, before_ts: int
+    config: DetectorConfig,
+    results: list[dict],
+    after_ts: int,
+    before_ts: int,
+    resolver: SupervisorResolver | None = None,
+    user_maps: dict | None = None,
 ) -> str:
     period = format_period(after_ts, before_ts)
     # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
@@ -399,12 +417,17 @@ def build_notification_text(
         "📋 詳細・ステータス管理: <https://docs.google.com/spreadsheets/d/1NYuYHOCUM-Uog5VySQ5OiAVkB5HE6_BmYPKpuELqKWI/edit?gid=419769240#gid=419769240|AI検知ログを確認する>",
     ]
 
+    by_name = (user_maps or {}).get("by_name", {})
+    by_email = (user_maps or {}).get("by_email", {})
+
     for label, items in by_importance.items():
         if not items:
             continue
         parts.append("")
         parts.append("")
         parts.append(f"*━━ {label} ({len(items)}件) ━━*")
+        # 🔴 / 🟡 のみマネージャーをメンション。🔵 はノイズ抑制のため出さない。
+        should_mention = label.startswith("🔴") or label.startswith("🟡")
         for i, r in enumerate(items):
             if i > 0:
                 parts.append("")
@@ -416,6 +439,16 @@ def build_notification_text(
             parts.append(r.get("channel_name", ""))
             parts.append("【対応メンバー】")
             parts.append(staff)
+            if should_mention and resolver is not None:
+                mention = resolver.resolve_mention(
+                    r.get("channel_id", ""),
+                    r.get("channel_name", ""),
+                    by_name,
+                    by_email,
+                )
+                if mention:
+                    parts.append("【マネージャー】")
+                    parts.append(mention)
             parts.append("【概要】")
             parts.append(r.get("summary", ""))
             parts.append(f"🔗 <{r.get('permalink', '')}|スレッドを見る>")

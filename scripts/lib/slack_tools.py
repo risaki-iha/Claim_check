@@ -127,6 +127,39 @@ class SlackTools:
             print(f"[get_channel_info error] {channel}: {e.response['error']}", flush=True)
             return {}
 
+    def list_users(self) -> dict:
+        """
+        ワークスペース全ユーザを取得し、display_name/email → user_id の辞書を返す。
+        - bot / 削除済みは除外
+        - スコープ不足や API エラー時は空辞書を返す（呼び出し側でメンション断念）
+        戻り値: {"by_name": dict, "by_email": dict}
+        """
+        by_name: dict[str, str] = {}
+        by_email: dict[str, str] = {}
+        cursor = None
+        try:
+            while True:
+                resp = self.client.users_list(cursor=cursor, limit=200)
+                for u in resp.get("members", []) or []:
+                    if u.get("deleted") or u.get("is_bot"):
+                        continue
+                    uid = u.get("id")
+                    if not uid:
+                        continue
+                    profile = u.get("profile", {}) or {}
+                    name = (profile.get("display_name") or profile.get("real_name") or u.get("name", "")).strip()
+                    email = (profile.get("email") or "").strip()
+                    if name and name not in by_name:
+                        by_name[name] = uid
+                    if email and email not in by_email:
+                        by_email[email] = uid
+                cursor = (resp.get("response_metadata") or {}).get("next_cursor", "")
+                if not cursor:
+                    break
+        except SlackApiError as e:
+            print(f"[list_users error] {e.response['error']}", flush=True)
+        return {"by_name": by_name, "by_email": by_email}
+
 
 def _ymd(ts: int, offset_days: int = 0) -> str:
     """Unix秒 → YYYY-MM-DD（JST）。offset_days で前後にずらせる。"""
