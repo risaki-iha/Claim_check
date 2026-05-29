@@ -17,7 +17,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 MASTER_SPREADSHEET_ID = "1PWqW08yD6shJu5sRUxTZvf7w7K7TaJEuQcDU2QmkZXY"
-MASTER_SHEET_NAME = "【公開用】案件ごとAM一覧"
+MASTER_SHEET_NAME = "1_顧客一覧"
 
 # データ行は4行目(1-indexed)から。1〜3行目は注釈/見出し。
 DATA_START_ROW_INDEX = 3
