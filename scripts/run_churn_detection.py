@@ -14,6 +14,7 @@ CONFIG = DetectorConfig(
     detection_type="解約リスク",
     notification_channel="C0APPHC8UR5",
     notification_username="Slack解約リスク検知",
+    header_emoji="🚨",
     skill_path=Path(__file__).parent.parent / "skills" / "churn-detection-realtime.md",
     legacy_header_patterns=[
         "Slack - 解約リスク検知くん",
