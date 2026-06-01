@@ -451,7 +451,7 @@ def build_notification_text(
 ) -> str:
     period = format_period(after_ts, before_ts)
     # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
-    header = f"⚡ *Slack - {config.name}（検知期間：{period}）*"
+    header = f"⚡ *Slack - {config.name}*\n検知期間：{period}"
 
     if not results:
         return f"{header}\n✅ 検知なし"
@@ -478,7 +478,7 @@ def build_notification_text(
         for i, r in enumerate(items):
             if i > 0:
                 parts.append("")
-                parts.append("─" * 14)
+                parts.append("─" * 20)
                 parts.append("")
             else:
                 parts.append("")
