@@ -37,6 +37,7 @@ class DetectorConfig:
     keyword_groups: dict  # { "A": [...], "B": [...] }
     skill_path: Path
     legacy_header_patterns: list  # 過去通知ヘッダーの正規表現
+    notification_username: str = ""  # Slack投稿時の表示名（空ならBotデフォルト名）。chat:write.customize スコープ必須
 
 
 def run_detection(config: DetectorConfig) -> None:
@@ -103,7 +104,11 @@ def run_detection(config: DetectorConfig) -> None:
             notification_text = build_notification_text(
                 config, results, after_ts, before_ts, resolver, user_maps
             )
-            slack.post_message(config.notification_channel, notification_text)
+            slack.post_message(
+                config.notification_channel,
+                notification_text,
+                username=config.notification_username,
+            )
             print("[notify] posted", flush=True)
 
             # 7. スプシ書き込み
