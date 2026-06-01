@@ -1,0 +1,59 @@
+name: 通知スモークテスト
+
+# 検知ロジックを通さず、Slack通知だけを試したい時に使う。
+# workflow_dispatch から手動起動。デフォルトは C0APPHC8UR5 に「テスト」を投稿。
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "通知先チャンネルID"
+        required: true
+        default: "C0APPHC8UR5"
+      text:
+        description: "送信テキスト"
+        required: true
+        default: "テスト"
+      username:
+        description: "投稿者名（空ならBotデフォルト）"
+        required: false
+        default: "Slackクレーム/社内トラブル検知"
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send test message
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          CHANNEL: ${{ github.event.inputs.channel }}
+          TEXT: ${{ github.event.inputs.text }}
+          USERNAME: ${{ github.event.inputs.username }}
+        run: |
+          python <<'EOF'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path("scripts")))
+          from lib.slack_tools import SlackTools
+
+          slack = SlackTools()
+          result = slack.post_message(
+              channel=os.environ["CHANNEL"],
+              text=os.environ["TEXT"],
+              username=os.environ.get("USERNAME", ""),
+          )
+          print(f"[notify] result: {result}")
+          if not result.get("ok"):
+              sys.exit(1)
+          EOF
