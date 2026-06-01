@@ -38,6 +38,7 @@ class DetectorConfig:
     skill_path: Path
     legacy_header_patterns: list  # 過去通知ヘッダーの正規表現
     notification_username: str = ""  # Slack投稿時の表示名（空ならBotデフォルト名）。chat:write.customize スコープ必須
+    header_emoji: str = "⚡"  # ヘッダー先頭の絵文字
 
 
 def run_detection(config: DetectorConfig) -> None:
@@ -451,7 +452,7 @@ def build_notification_text(
 ) -> str:
     period = format_period(after_ts, before_ts)
     # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
-    header = f"⚡ *Slack - {config.name}*\n検知期間：{period}"
+    header = f"{config.header_emoji} *Slack - {config.name}*\n検知期間：{period}"
 
     if not results:
         return f"{header}\n✅ 検知なし"
