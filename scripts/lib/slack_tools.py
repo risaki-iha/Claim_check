@@ -106,14 +106,18 @@ class SlackTools:
                 print(f"[read_channel error] {channel}: {e.response['error']}", flush=True)
                 return []
 
-    def post_message(self, channel: str, text: str) -> dict:
+    def post_message(self, channel: str, text: str, username: str = "") -> dict:
+        kwargs = {
+            "channel": channel,
+            "text": text,
+            "unfurl_links": False,
+            "unfurl_media": False,
+        }
+        if username:
+            # username 上書きには chat:write.customize スコープが必要
+            kwargs["username"] = username
         try:
-            resp = self.client.chat_postMessage(
-                channel=channel,
-                text=text,
-                unfurl_links=False,
-                unfurl_media=False,
-            )
+            resp = self.client.chat_postMessage(**kwargs)
             return {"ok": True, "ts": resp.get("ts")}
         except SlackApiError as e:
             print(f"[post_message error] {channel}: {e.response['error']}", flush=True)
