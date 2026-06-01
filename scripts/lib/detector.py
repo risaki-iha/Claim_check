@@ -437,8 +437,7 @@ def build_notification_text(
                 parts.append("")
             staff = r.get("main_owner_name") or "-"
             parts.append(f"*{r.get('channel_name', '')}*")
-            parts.append("【対応メンバー】")
-            parts.append(staff)
+            parts.append(f"【対応メンバー】{staff}")
             if should_mention and resolver is not None:
                 mention = resolver.resolve_mention(
                     r.get("channel_id", ""),
@@ -447,8 +446,7 @@ def build_notification_text(
                     by_email,
                 )
                 if mention:
-                    parts.append("【マネージャー】")
-                    parts.append(mention)
+                    parts.append(f"【マネージャー】{mention}")
             parts.append("【概要】")
             parts.append(r.get("summary", ""))
             parts.append(f"🔗 <{r.get('permalink', '')}|スレッドを見る>")
