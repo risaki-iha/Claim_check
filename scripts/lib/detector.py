@@ -85,6 +85,10 @@ def run_detection(config: DetectorConfig) -> None:
             results = []
         print(f"[evaluate] {len(results)} detections after AI", flush=True)
 
+        # 5.5 同一スレッド内で複数論点が出た場合は1件に集約
+        results = merge_results_by_thread(results)
+        print(f"[merge] {len(results)} detections after thread merge", flush=True)
+
         # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
         if results:
             # 上長メンション解決の準備（失敗時は【マネージャー】行を出さない）
@@ -390,6 +394,49 @@ def _evaluate_batch(
         return []
 
     return [r for r in results if r.get("importance") and r.get("importance") != "NOISE"]
+
+
+# ---------- 同スレ集約 ----------
+
+_IMPORTANCE_RANK = {
+    "🔴 即対応・上長報告": 3,
+    "🟡 要対応・要確認": 2,
+    "🔵 情報共有": 1,
+}
+
+
+def merge_results_by_thread(results: list[dict]) -> list[dict]:
+    """
+    同じ (channel_id, thread_ts) の検知は1件にマージする。
+    - 重要度が最も高い件を代表に採用（permalink等もそれを使う）
+    - 概要は各論点を箇条書きで結合
+    - thread_ts が空の件はマージ対象外、そのまま残す
+    """
+    grouped: dict = {}
+    no_thread: list[dict] = []
+    for r in results:
+        thread_ts = (r.get("thread_ts") or "").strip()
+        if not thread_ts:
+            no_thread.append(r)
+            continue
+        key = (r.get("channel_id", ""), thread_ts)
+        grouped.setdefault(key, []).append(r)
+
+    merged: list[dict] = []
+    for items in grouped.values():
+        if len(items) == 1:
+            merged.append(items[0])
+            continue
+        items.sort(
+            key=lambda x: _IMPORTANCE_RANK.get(x.get("importance", ""), 0),
+            reverse=True,
+        )
+        rep = dict(items[0])
+        summaries = [it.get("summary", "").strip() for it in items if it.get("summary")]
+        if len(summaries) > 1:
+            rep["summary"] = "\n".join(f"・{s}" for s in summaries)
+        merged.append(rep)
+    return merged + no_thread
 
 
 # ---------- Slack 通知整形 ----------
