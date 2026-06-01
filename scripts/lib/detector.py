@@ -415,16 +415,7 @@ def build_notification_text(
         if imp in by_importance:
             by_importance[imp].append(r)
 
-    total = sum(len(v) for v in by_importance.values())
-    long_line = "━" * 20
-
-    parts = [
-        header,
-        long_line,
-        f"検知数：{total}件 ｜ 🔴 {len(by_importance['🔴 即対応・上長報告'])}件 ｜ 🟡 {len(by_importance['🟡 要対応・要確認'])}件 ｜ 🔵 {len(by_importance['🔵 情報共有'])}件",
-        long_line,
-        "📋 詳細・ステータス管理: <https://docs.google.com/spreadsheets/d/1NYuYHOCUM-Uog5VySQ5OiAVkB5HE6_BmYPKpuELqKWI/edit?gid=419769240#gid=419769240|AI検知ログを確認する>",
-    ]
+    parts = [header]
 
     by_name = (user_maps or {}).get("by_name", {})
     by_email = (user_maps or {}).get("by_email", {})
@@ -445,9 +436,8 @@ def build_notification_text(
             else:
                 parts.append("")
             staff = r.get("main_owner_name") or "-"
-            parts.append(r.get("channel_name", ""))
-            parts.append("【対応メンバー】")
-            parts.append(staff)
+            parts.append(f"*{r.get('channel_name', '')}*")
+            parts.append(f"【対応メンバー】{staff}")
             if should_mention and resolver is not None:
                 mention = resolver.resolve_mention(
                     r.get("channel_id", ""),
@@ -456,8 +446,7 @@ def build_notification_text(
                     by_email,
                 )
                 if mention:
-                    parts.append("【マネージャー】")
-                    parts.append(mention)
+                    parts.append(f"【マネージャー】{mention}")
             parts.append("【概要】")
             parts.append(r.get("summary", ""))
             parts.append(f"🔗 <{r.get('permalink', '')}|スレッドを見る>")

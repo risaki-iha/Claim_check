@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from lib.detector import DetectorConfig, run_detection
 
 CONFIG = DetectorConfig(
-    name="クレーム検知くん",
+    name="クレーム/社内トラブル検知くん",
     detection_type="クレーム",
     notification_channel="C0APPHC8UR5",
     notification_username="Slackクレーム/社内トラブル検知",
