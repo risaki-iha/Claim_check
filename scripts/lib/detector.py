@@ -452,7 +452,7 @@ def build_notification_text(
 ) -> str:
     period = format_period(after_ts, before_ts)
     # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
-    header = f"{config.header_emoji} *Slack - {config.name}*\n検知期間：{period}"
+    header = f"{config.header_emoji} *Slack - {config.name}* {config.header_emoji}\n検知期間：{period}"
 
     if not results:
         return f"{header}\n✅ 検知なし"
