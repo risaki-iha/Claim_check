@@ -13,7 +13,7 @@ from lib.detector import DetectorConfig, run_detection
 CONFIG = DetectorConfig(
     name="クレーム検知くん",
     detection_type="クレーム",
-    notification_channel="C0ABRS7NR27",
+    notification_channel="C0APPHC8UR5",
     skill_path=Path(__file__).parent.parent / "skills" / "claim-detection-realtime.md",
     legacy_header_patterns=[
         "Slack - クレーム検知くん",
