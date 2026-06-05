@@ -17,7 +17,7 @@ from pathlib import Path
 from .claude_oauth import ClaudeClient
 from .slack_tools import SlackTools
 from .sheets_tools import SheetsTools
-from .supervisor_map import SupervisorResolver
+from .supervisor_map import SupervisorResolver, DEFAULT_MENTION_EMAIL
 
 JST = timezone(timedelta(hours=9))
 JP_WEEKDAYS = "月火水木金土日"
@@ -492,6 +492,7 @@ def build_notification_text(
                     r.get("channel_name", ""),
                     by_name,
                     by_email,
+                    default_email=DEFAULT_MENTION_EMAIL,
                 )
                 if mention:
                     parts.append(f"【マネージャー】{mention}")

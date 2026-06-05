@@ -42,6 +42,7 @@ USER_ID_BY_EMAIL = {
     "miu_miki@nyle.co.jp": "U_MIKI",
     "shuri_fr@nyle.co.jp": "U_FURUICHI",
     "risaki_iha@nyle.co.jp": "U_IHA",
+    "toru_my@nyle.co.jp": "U_MIYAZAWA",  # DEFAULT_MENTION_EMAIL（宮澤）
 }
 USER_ID_BY_NAME = {
     "テスト太郎": "U_TEST_TARO",
@@ -108,7 +109,7 @@ def run() -> int:
         "<@U_TEST_TARO>",
     )
 
-    print("\n=== resolve_mention（解決不能） ===")
+    print("\n=== resolve_mention（解決不能・default_email なし） ===")
     check(
         "未マッチ → None（マネージャー行を出さない）",
         r.resolve_mention("C_UNKNOWN", "社内_存在しない_999", USER_ID_BY_NAME, USER_ID_BY_EMAIL),
@@ -117,6 +118,35 @@ def run() -> int:
     check(
         "マッチするがユーザ辞書に該当なし → None",
         r.resolve_mention("C_NAME_ONLY", "any", {}, {}),
+        None,
+    )
+
+    print("\n=== resolve_mention（宮澤フォールバック・default_email あり） ===")
+    DEFAULT = "toru_my@nyle.co.jp"
+    check(
+        "一覧外 → 宮澤にフォールバック",
+        r.resolve_mention(
+            "C_UNKNOWN", "社内_存在しない_999", USER_ID_BY_NAME, USER_ID_BY_EMAIL, default_email=DEFAULT
+        ),
+        "<@U_MIYAZAWA>",
+    )
+    check(
+        "一覧にはいるが user_id 引けない → 宮澤にフォールバック",
+        r.resolve_mention(
+            "C09PM52KCP4", "any", {}, {"toru_my@nyle.co.jp": "U_MIYAZAWA"}, default_email=DEFAULT
+        ),
+        "<@U_MIYAZAWA>",
+    )
+    check(
+        "一覧で解決できれば宮澤に流れない（既存メンション優先）",
+        r.resolve_mention(
+            "C09PM52KCP4", "any", USER_ID_BY_NAME, USER_ID_BY_EMAIL, default_email=DEFAULT
+        ),
+        "<@U_MIKI>",
+    )
+    check(
+        "宮澤すらユーザ辞書にない → None",
+        r.resolve_mention("C_UNKNOWN", "社内_存在しない_999", {}, {}, default_email=DEFAULT),
         None,
     )
 
