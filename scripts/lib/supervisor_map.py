@@ -6,7 +6,8 @@
 - 検知チャンネルの channel_id (G列) 完全マッチを優先、ダメならコール名 (B列) でチャンネル名部分マッチ
 - 解決したマネのメアド (E列) を Slack の users.list 由来の email → user_id 辞書から user_id に変換してメンション化
 - メアドで引けなければマネ名 (D列) → user_id 辞書をフォールバック
-- どちらも引けなければ None（呼び出し側で【マネージャー】行を出さない＝事故メンション防止）
+- 一覧で引けない / user_id を解決できない全ケースは DEFAULT_MENTION_EMAIL（宮澤）にフォールバック
+- 宮澤すら user_id を引けなければ None（呼び出し側で【マネージャー】行を出さない＝事故メンション防止）
 - テスト時はスプシのD列/E列を直接書き換えて運用する（環境変数による差し替えは行わない）
 """
 
@@ -18,6 +19,10 @@ from google.oauth2.service_account import Credentials
 
 MASTER_SPREADSHEET_ID = "1PWqW08yD6shJu5sRUxTZvf7w7K7TaJEuQcDU2QmkZXY"
 MASTER_SHEET_NAME = "1_顧客一覧"
+
+# 一覧にいない案件、または一覧にはいるが user_id を解決できなかった案件の
+# 上長メンション フォールバック先（宮澤）。
+DEFAULT_MENTION_EMAIL = "toru_my@nyle.co.jp"
 
 # データ行は4行目(1-indexed)から。1〜3行目は注釈/見出し。
 DATA_START_ROW_INDEX = 3
@@ -81,23 +86,29 @@ class SupervisorResolver:
         channel_name: str,
         user_id_by_name: dict,
         user_id_by_email: dict,
+        default_email: str | None = None,
     ) -> str | None:
         """
         検知チャンネル → Slack メンション文字列 (<@U0XXX>) を返す。
         メアド(E列)からの解決を優先、名前(D列)はフォールバック。
-        どちらも引けなければ None。
+        一覧で引けない / user_id を解決できない場合は default_email（宮澤）で再解決する。
+        それでも引けなければ None。
         """
         entry = self.resolve_entry(channel_id, channel_name)
-        if not entry:
-            return None
-        email = entry.get("email", "")
-        if email:
-            uid = user_id_by_email.get(email)
-            if uid:
-                return f"<@{uid}>"
-        name = entry.get("name", "")
-        if name:
-            uid = user_id_by_name.get(name)
+        if entry:
+            email = entry.get("email", "")
+            if email:
+                uid = user_id_by_email.get(email)
+                if uid:
+                    return f"<@{uid}>"
+            name = entry.get("name", "")
+            if name:
+                uid = user_id_by_name.get(name)
+                if uid:
+                    return f"<@{uid}>"
+        # 一覧外 or user_id 解決不能 → 宮澤にフォールバック
+        if default_email:
+            uid = user_id_by_email.get(default_email)
             if uid:
                 return f"<@{uid}>"
         return None
