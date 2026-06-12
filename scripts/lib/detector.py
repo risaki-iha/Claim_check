@@ -17,9 +17,16 @@ from pathlib import Path
 from .claude_oauth import ClaudeClient
 from .slack_tools import SlackTools
 from .sheets_tools import SheetsTools
+from .supervisor_map import SupervisorResolver, DEFAULT_MENTION_EMAIL
 
 JST = timezone(timedelta(hours=9))
 JP_WEEKDAYS = "月火水木金土日"
+
+# 検知対象から除外する投稿者の Slack user_id
+# - 議事録転送bot（自動投稿された議事録はリアルタイム検知の対象外）
+EXCLUDED_AUTHOR_USER_IDS = {
+    "U0B305165M1",  # 議事録転送bot
+}
 
 
 @dataclass
@@ -30,6 +37,8 @@ class DetectorConfig:
     keyword_groups: dict  # { "A": [...], "B": [...] }
     skill_path: Path
     legacy_header_patterns: list  # 過去通知ヘッダーの正規表現
+    notification_username: str = ""  # Slack投稿時の表示名（空ならBotデフォルト名）。chat:write.customize スコープ必須
+    header_emoji: str = "⚡"  # ヘッダー先頭の絵文字
 
 
 def run_detection(config: DetectorConfig) -> None:
@@ -77,16 +86,42 @@ def run_detection(config: DetectorConfig) -> None:
             results = []
         print(f"[evaluate] {len(results)} detections after AI", flush=True)
 
-        # 6. Slack 通知送信
-        notification_text = build_notification_text(config, results, after_ts, before_ts)
-        slack.post_message(config.notification_channel, notification_text)
-        print("[notify] posted", flush=True)
+        # 5.5 同一スレッド内で複数論点が出た場合は1件に集約
+        results = merge_results_by_thread(results)
+        print(f"[merge] {len(results)} detections after thread merge", flush=True)
 
-        # 7. スプシ書き込み
+        # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
         if results:
+            # 上長メンション解決の準備（失敗時は【マネージャー】行を出さない）
+            resolver = SupervisorResolver()
+            try:
+                resolver.load()
+            except Exception as e:
+                print(
+                    f"[supervisor] マスタスプシ読込失敗、メンション行は出さずに継続: "
+                    f"{type(e).__name__}: {e!r}",
+                    flush=True,
+                )
+                resolver = None
+
+            user_maps = slack.list_users() if resolver else {"by_name": {}, "by_email": {}}
+
+            notification_text = build_notification_text(
+                config, results, after_ts, before_ts, resolver, user_maps
+            )
+            slack.post_message(
+                config.notification_channel,
+                notification_text,
+                username=config.notification_username,
+            )
+            print("[notify] posted", flush=True)
+
+            # 7. スプシ書き込み
             rows = build_sheet_rows(results, config)
             appended = sheets.append_rows(rows)
             print(f"[sheets] appended {appended} rows", flush=True)
+        else:
+            print("[notify] 検知0件のため通知スキップ", flush=True)
     finally:
         # ローテーションが**実際に起きた場合だけ** GITHUB_OUTPUT に書き出す。
         # OAuth refresh が失敗した場合（invalid_grant 等）に古いトークンを
@@ -208,6 +243,7 @@ def filter_and_dedupe(messages: list[dict]) -> list[dict]:
     - チャンネル名に「社内」または「社外」を含むもののみ残す
     - thread_ts でデデュプ（一番古いものを採用）
     - mdx_, dxm_, hajimari は除外
+    - EXCLUDED_AUTHOR_USER_IDS（議事録転送bot等）からの投稿は除外
     """
     seen = {}
     for m in messages:
@@ -216,6 +252,11 @@ def filter_and_dedupe(messages: list[dict]) -> list[dict]:
         if not ("社内" in ch_name or "社外" in ch_name):
             continue
         if any(bad in ch_name for bad in ["mdx_", "dxm_", "hajimari"]):
+            continue
+
+        # 議事録転送bot等、自動投稿系のメッセージは検知対象外
+        author_id = m.get("user")
+        if author_id in EXCLUDED_AUTHOR_USER_IDS:
             continue
 
         thread_ts = m.get("thread_ts") or m.get("ts")
@@ -276,14 +317,35 @@ def enrich_threads(slack: SlackTools, threads: list[dict]) -> list[dict]:
 
 # ---------- AI 判定 ----------
 
+EVALUATE_BATCH_SIZE = 8
+
+
 def evaluate_with_claude(
     claude: ClaudeClient, threads: list[dict], skill_content: str, config: DetectorConfig
 ) -> list[dict]:
     """
-    skill 内容を system prompt に投入。
-    threads を JSON で user メッセージとして渡す。
-    Claude は構造化された判定結果を JSON で返す。
+    skill 内容を system prompt に投入。threads を JSON で渡して構造化判定結果を受け取る。
+
+    Claude Haiku の max_tokens=8K に収まるよう EVALUATE_BATCH_SIZE 件ずつ分割して評価する。
+    1回でまとめて送ると出力が途中で切れて JSON パース失敗→0件扱いになる事故が起きるため。
     """
+    all_results: list[dict] = []
+    total_batches = (len(threads) + EVALUATE_BATCH_SIZE - 1) // EVALUATE_BATCH_SIZE
+    for batch_idx in range(0, len(threads), EVALUATE_BATCH_SIZE):
+        batch = threads[batch_idx : batch_idx + EVALUATE_BATCH_SIZE]
+        batch_no = batch_idx // EVALUATE_BATCH_SIZE + 1
+        results = _evaluate_batch(claude, batch, skill_content)
+        print(
+            f"[evaluate] batch {batch_no}/{total_batches}: {len(batch)} threads → {len(results)} hits",
+            flush=True,
+        )
+        all_results.extend(results)
+    return all_results
+
+
+def _evaluate_batch(
+    claude: ClaudeClient, threads: list[dict], skill_content: str
+) -> list[dict]:
     user_input = json.dumps(
         {
             "task": "以下のスレッドを skill の手順 (Step 5) と重要度マトリクスに従って判定し、"
@@ -328,19 +390,69 @@ def evaluate_with_claude(
     try:
         results = json.loads(text)
     except json.JSONDecodeError:
-        print(f"[evaluate] JSON parse failed. Raw output: {text[:500]}", flush=True)
+        print(f"[evaluate] JSON parse failed. Raw output (head 500): {text[:500]}", flush=True)
+        print(f"[evaluate] JSON parse failed. Raw output (tail 200): {text[-200:]}", flush=True)
         return []
 
     return [r for r in results if r.get("importance") and r.get("importance") != "NOISE"]
 
 
+# ---------- 同スレ集約 ----------
+
+_IMPORTANCE_RANK = {
+    "🔴 即対応・上長報告": 3,
+    "🟡 要対応・要確認": 2,
+    "🔵 情報共有": 1,
+}
+
+
+def merge_results_by_thread(results: list[dict]) -> list[dict]:
+    """
+    同じ (channel_id, thread_ts) の検知は1件にマージする。
+    - 重要度が最も高い件を代表に採用（permalink等もそれを使う）
+    - 概要は各論点を箇条書きで結合
+    - thread_ts が空の件はマージ対象外、そのまま残す
+    """
+    grouped: dict = {}
+    no_thread: list[dict] = []
+    for r in results:
+        thread_ts = (r.get("thread_ts") or "").strip()
+        if not thread_ts:
+            no_thread.append(r)
+            continue
+        key = (r.get("channel_id", ""), thread_ts)
+        grouped.setdefault(key, []).append(r)
+
+    merged: list[dict] = []
+    for items in grouped.values():
+        if len(items) == 1:
+            merged.append(items[0])
+            continue
+        items.sort(
+            key=lambda x: _IMPORTANCE_RANK.get(x.get("importance", ""), 0),
+            reverse=True,
+        )
+        rep = dict(items[0])
+        summaries = [it.get("summary", "").strip() for it in items if it.get("summary")]
+        if len(summaries) > 1:
+            rep["summary"] = "\n".join(f"・{s}" for s in summaries)
+        merged.append(rep)
+    return merged + no_thread
+
+
 # ---------- Slack 通知整形 ----------
 
 def build_notification_text(
-    config: DetectorConfig, results: list[dict], after_ts: int, before_ts: int
+    config: DetectorConfig,
+    results: list[dict],
+    after_ts: int,
+    before_ts: int,
+    resolver: SupervisorResolver | None = None,
+    user_maps: dict | None = None,
 ) -> str:
     period = format_period(after_ts, before_ts)
-    header = f"⚡ **Slack - {config.name}（検知期間：{period}）**"
+    # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
+    header = f"{config.header_emoji} *Slack - {config.name}* {config.header_emoji}\n検知期間：{period}"
 
     if not results:
         return f"{header}\n✅ 検知なし"
@@ -351,34 +463,39 @@ def build_notification_text(
         if imp in by_importance:
             by_importance[imp].append(r)
 
-    total = sum(len(v) for v in by_importance.values())
-    long_line = "━" * 20
+    parts = [header]
 
-    parts = [
-        header,
-        long_line,
-        f"検知数：{total}件 ｜ 🔴 {len(by_importance['🔴 即対応・上長報告'])}件 ｜ 🟡 {len(by_importance['🟡 要対応・要確認'])}件 ｜ 🔵 {len(by_importance['🔵 情報共有'])}件",
-        long_line,
-        "📋 詳細・ステータス管理: <https://docs.google.com/spreadsheets/d/1NYuYHOCUM-Uog5VySQ5OiAVkB5HE6_BmYPKpuELqKWI/edit?gid=419769240#gid=419769240|AI検知ログを確認する>",
-    ]
+    by_name = (user_maps or {}).get("by_name", {})
+    by_email = (user_maps or {}).get("by_email", {})
 
     for label, items in by_importance.items():
         if not items:
             continue
         parts.append("")
         parts.append("")
-        parts.append(f"**━━ {label} ({len(items)}件) ━━**")
+        parts.append(f"*━━ {label} ({len(items)}件) ━━*")
+        # 🔴 / 🟡 のみマネージャーをメンション。🔵 はノイズ抑制のため出さない。
+        should_mention = label.startswith("🔴") or label.startswith("🟡")
         for i, r in enumerate(items):
             if i > 0:
                 parts.append("")
-                parts.append("─" * 14)
+                parts.append("─" * 20)
                 parts.append("")
             else:
                 parts.append("")
             staff = r.get("main_owner_name") or "-"
-            parts.append(r.get("channel_name", ""))
-            parts.append("【対応メンバー】")
-            parts.append(staff)
+            parts.append(f"*{r.get('channel_name', '')}*")
+            parts.append(f"【対応メンバー】{staff}")
+            if should_mention and resolver is not None:
+                mention = resolver.resolve_mention(
+                    r.get("channel_id", ""),
+                    r.get("channel_name", ""),
+                    by_name,
+                    by_email,
+                    default_email=DEFAULT_MENTION_EMAIL,
+                )
+                if mention:
+                    parts.append(f"【マネージャー】{mention}")
             parts.append("【概要】")
             parts.append(r.get("summary", ""))
             parts.append(f"🔗 <{r.get('permalink', '')}|スレッドを見る>")
