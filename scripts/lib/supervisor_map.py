@@ -2,8 +2,14 @@
 上長メンション解決（マスタスプシから AM 上長を引く）
 
 設計方針:
-- マスタスプシ「【公開用】案件ごとAM一覧」を読み、channel_id / コール名 → (マネ名, マネメアド) の辞書を作る
-- 検知チャンネルの channel_id (G列) 完全マッチを優先、ダメならコール名 (B列) でチャンネル名部分マッチ
+- マスタスプシ「【公開用】案件ごとAM一覧」を読み、channel_id / 顧客NO(6桁本体) / コール名 → (マネ名, マネメアド) の辞書を作る
+- 検知チャンネルの突合は3段構え（上から優先）:
+    ① channel_id (G列) 完全マッチ           … 実IDで最も確実。チャンネル名にNOが無くても引ける
+    ② 顧客NO 6桁本体マッチ (J列「顧客窓口No」) … チャンネル名から最後の6桁を抽出して突合。部分一致より堅い
+    ③ コール名 (B列) でチャンネル名部分マッチ   … 最後の保険（誤爆しうるので最後）
+  ②について: 顧客窓口No は `XXXXXX-XXX`（6桁本体＋3桁窓口枝番）。チャンネル名末尾の枝番がズレる/欠ける
+  ことがある（例: 楽天の窓口別チャンネル、枝番なしチャンネル）ため、突合キーは6桁本体のみを使う。
+  実スプシ147行で「同一6桁本体なのに担当AMが異なる」ケースは0件であることを確認済み＝6桁本体マッチで誤メンションは起きない。
 - 解決したマネのメアド (E列) を Slack の users.list 由来の email → user_id 辞書から user_id に変換してメンション化
 - メアドで引けなければマネ名 (D列) → user_id 辞書をフォールバック
 - 一覧で引けない / user_id を解決できない全ケースは DEFAULT_MENTION_EMAIL（宮澤）にフォールバック
@@ -13,6 +19,7 @@
 
 import json
 import os
+import re
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -30,11 +37,32 @@ COL_CALL_NAME = 1     # B列
 COL_MANAGER = 3       # D列（slackメンション先 ※マネ）
 COL_EMAIL = 4         # E列（MGメアド）
 COL_SLACK_CH_ID = 6   # G列（slackチャンネルID）
+COL_KOKYAKU_NO = 9    # J列（顧客窓口No ※ XXXXXX-XXX 形式）
+
+# 顧客NO: 6桁本体（＋任意の -枝番）。前後を数字で挟まれていない6桁だけ拾う。
+# findall は本体6桁のみをキャプチャして返す。
+_KOKYAKU_RE = re.compile(r"(?<!\d)(\d{6})(?:-\d+)?(?!\d)")
+
+
+def extract_kokyaku_base(text: str) -> str | None:
+    """文字列中の顧客NO 6桁本体を返す。複数あれば最後の出現を採用（NOは名前の末尾寄りにある前提）。
+    例: '社内_楽天-gora-ゴルフ事業_100093-003' → '100093'
+        '社内_プライムクロス_100706'           → '100706'
+        '100093-004'                           → '100093'
+        '社内_旭化成ホームズ_100414-001_旧-…'  → '100414'（NOが途中にあっても拾える）
+    """
+    if not text:
+        return None
+    matches = _KOKYAKU_RE.findall(text)
+    if not matches:
+        return None
+    return matches[-1]
 
 
 class SupervisorResolver:
     def __init__(self):
         self._by_channel_id: dict[str, dict[str, str]] = {}
+        self._by_kokyaku_base: dict[str, dict[str, str]] = {}
         self._by_call_name: dict[str, dict[str, str]] = {}
         self._loaded = False
 
@@ -57,11 +85,16 @@ class SupervisorResolver:
             manager = (row[COL_MANAGER] or "").strip()
             email = (row[COL_EMAIL] or "").strip()
             ch_id = (row[COL_SLACK_CH_ID] or "").strip()
+            kokyaku_no = (row[COL_KOKYAKU_NO] or "").strip() if len(row) > COL_KOKYAKU_NO else ""
             if not manager and not email:
                 continue
             entry = {"name": manager, "email": email}
             if ch_id:
                 self._by_channel_id[ch_id] = entry
+            base = extract_kokyaku_base(kokyaku_no)
+            if base:
+                # 同一6桁本体は担当AMも同一（実スプシで検証済み）なので先勝ちで安全
+                self._by_kokyaku_base.setdefault(base, entry)
             if call_name:
                 # コール名重複時は先勝ち（手前のほうが主案件と仮定）
                 self._by_call_name.setdefault(call_name, entry)
@@ -70,10 +103,19 @@ class SupervisorResolver:
     def resolve_entry(self, channel_id: str, channel_name: str) -> dict | None:
         if not self._loaded:
             return None
+        # ① channel_id (G列) 完全マッチ
         if channel_id:
             entry = self._by_channel_id.get(channel_id)
             if entry:
                 return entry
+        # ② 顧客NO 6桁本体マッチ（チャンネル名末尾のNO → J列の6桁本体）
+        if channel_name:
+            base = extract_kokyaku_base(channel_name)
+            if base:
+                entry = self._by_kokyaku_base.get(base)
+                if entry:
+                    return entry
+        # ③ コール名 (B列) 部分マッチ（最後の保険）
         if channel_name:
             for call_name, entry in self._by_call_name.items():
                 if call_name in channel_name:
