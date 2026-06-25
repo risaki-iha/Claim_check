@@ -4,7 +4,11 @@ Google Sheets 書き込み（gspread + サービスアカウント）
 
 import os
 import json
+import time
+
 import gspread
+import requests
+from gspread.exceptions import APIError
 from google.oauth2.service_account import Credentials
 
 
@@ -46,8 +50,43 @@ class SheetsTools:
         self.gc = gspread.authorize(creds)
         self.sheet = self.gc.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
-    def append_rows(self, rows: list[dict]) -> int:
-        """rows: dict のリスト（key は COLUMNS）"""
+    def append_rows(self, rows: list[dict], max_retries: int = 3) -> int:
+        """rows: dict のリスト（key は COLUMNS）
+
+        Google Sheets API は一過性の接続断（RemoteDisconnected 等）や
+        5xx / 429 を返すことがある。1発失敗でジョブごと落とさないよう、
+        指数バックオフ（1s, 2s, 4s）で最大 max_retries 回リトライする。
+        恒久エラー（権限不足などの 4xx）は即座に raise する。
+        """
         values = [[row.get(col, "") for col in COLUMNS] for row in rows]
-        self.sheet.append_rows(values, value_input_option="USER_ENTERED")
-        return len(values)
+        for attempt in range(max_retries):
+            try:
+                self.sheet.append_rows(values, value_input_option="USER_ENTERED")
+                return len(values)
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            ) as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait = 2 ** attempt
+                print(
+                    f"[sheets] append 失敗（接続系 {attempt + 1}/{max_retries}）: "
+                    f"{type(e).__name__} → {wait}s 後リトライ",
+                    flush=True,
+                )
+                time.sleep(wait)
+            except APIError as e:
+                # 5xx / 429 のみ一過性とみなしリトライ。4xx は即 raise。
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status not in (429, 500, 502, 503, 504) or attempt == max_retries - 1:
+                    raise
+                wait = 2 ** attempt
+                print(
+                    f"[sheets] append 失敗（API {status} {attempt + 1}/{max_retries}）"
+                    f" → {wait}s 後リトライ",
+                    flush=True,
+                )
+                time.sleep(wait)
+        return 0  # 到達しない（成功で return / 最終失敗で raise）
