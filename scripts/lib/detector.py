@@ -75,6 +75,12 @@ def run_detection(config: DetectorConfig) -> None:
         threads = filter_and_dedupe(candidates)
         print(f"[filter] {len(threads)} threads after filter", flush=True)
 
+        # 3.5 スプシ既通知スレッドを除外（同一スレッドの多重検知防止）
+        notified_keys = sheets.get_notified_thread_keys()
+        before_dedup = len(threads)
+        threads = [t for t in threads if (t["channel_id"], t["thread_ts"]) not in notified_keys]
+        print(f"[dedup-sheets] {before_dedup} → {len(threads)} threads (skipped {before_dedup - len(threads)} notified)", flush=True)
+
         # 4. スレッド取得 + ユーザープロフィール
         enriched = enrich_threads(slack, threads)
         print(f"[enrich] {len(enriched)} threads enriched", flush=True)
