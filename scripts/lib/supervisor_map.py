@@ -100,13 +100,17 @@ class SupervisorResolver:
             email = entry.get("email", "")
             if email:
                 uid = user_id_by_email.get(email)
+                print(f"[supervisor] ch={channel_id!r} entry_email={email!r} uid={uid!r}", flush=True)
                 if uid:
                     return f"<@{uid}>"
             name = entry.get("name", "")
             if name:
                 uid = user_id_by_name.get(name)
+                print(f"[supervisor] ch={channel_id!r} entry_name={name!r} uid={uid!r}", flush=True)
                 if uid:
                     return f"<@{uid}>"
+        else:
+            print(f"[supervisor] ch={channel_id!r} name={channel_name!r} → no entry found", flush=True)
         # 一覧外 or user_id 解決不能 → 宮澤にフォールバック
         if default_email:
             uid = user_id_by_email.get(default_email)
