@@ -4,6 +4,7 @@ Google Sheets 書き込み（gspread + サービスアカウント）
 
 import os
 import json
+import re
 import time
 
 import gspread
@@ -90,3 +91,38 @@ class SheetsTools:
                 )
                 time.sleep(wait)
         return 0  # 到達しない（成功で return / 最終失敗で raise）
+
+    def get_notified_thread_keys(self) -> set:
+        """スプシの「メッセージリンク」列から既通知の (channel_id, thread_ts) セットを返す。
+
+        同一スレッドの多重検知を防ぐために使用する。
+        permalink 形式: .../archives/{channel_id}/p{ts}?thread_ts={thread_ts}
+        """
+        col_idx = COLUMNS.index("メッセージリンク") + 1  # gspread は 1-indexed
+        try:
+            values = self.sheet.col_values(col_idx)[1:]  # ヘッダー行スキップ
+        except Exception as e:
+            print(f"[sheets] get_notified_thread_keys 失敗（継続）: {e!r}", flush=True)
+            return set()
+
+        result = set()
+        for url in values:
+            if not url:
+                continue
+            m_ch = re.search(r'/archives/([A-Z0-9]+)/', url)
+            if not m_ch:
+                continue
+            channel_id = m_ch.group(1)
+            # スレッド返信の permalink: ?thread_ts=1234567890.123456
+            m_thread = re.search(r'[?&]thread_ts=([\d.]+)', url)
+            if m_thread:
+                thread_ts = m_thread.group(1)
+            else:
+                # ルートメッセージの permalink: /p1234567890123456
+                m_p = re.search(r'/p(\d{16,})', url)
+                if not m_p:
+                    continue
+                raw = m_p.group(1)
+                thread_ts = raw[:10] + '.' + raw[10:]
+            result.add((channel_id, thread_ts))
+        return result
