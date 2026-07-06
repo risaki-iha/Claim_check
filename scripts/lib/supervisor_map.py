@@ -2,9 +2,13 @@
 上長メンション解決（マスタスプシから AM 上長を引く）
 
 設計方針:
-- マスタスプシ「（伊波作業中）1_顧客一覧」を読み、channel_id / 顧客名セグメント → (マネ名, マネメアド) の辞書を作る
-- 検知チャンネルの channel_id (J列) 完全マッチを優先
-- 次に channel_name を "_" 分割し、各セグメントが顧客名 (C列) に含まれるか部分マッチ
+- マスタスプシ「（伊波作業中）1_顧客一覧」を読み、channel_id / 顧客NO / 顧客名セグメント → (マネ名, マネメアド) の辞書を作る
+- 検知チャンネルの突合は3段構え（上から優先）:
+    ① channel_id (K列) 完全マッチ           … 実IDで最も確実
+    ② 顧客NO 6桁本体マッチ (F列「顧客窓口No」) … チャンネル名から最後の6桁を抽出して突合。枝番ズレ/欠落を吸収
+    ③ 顧客名 (D列) でチャンネル名部分マッチ  … 最後の保険（誤爆しうるので最後）
+  ②について: 顧客窓口No は `XXXXXX-XXX`（6桁本体＋3桁窓口枝番）。チャンネル名末尾の枝番がズレる/欠けることがある
+  ため、突合キーは6桁本体のみを使う。同一6桁本体で担当AMが異なるケースは実スプシで0件確認済み。
 - 解決したマネのメアド (I列) を Slack の users.list 由来の email → user_id 辞書から user_id に変換してメンション化
 - メアドで引けなければマネ名 (H列) → user_id 辞書をフォールバック
 - 一覧で引けない / user_id を解決できない全ケースは DEFAULT_MENTION_EMAIL（宮澤）にフォールバック
@@ -13,6 +17,7 @@
 
 import json
 import os
+import re
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -28,14 +33,28 @@ DEFAULT_MENTION_EMAIL = "toru_my@nyle.co.jp"
 DATA_START_ROW_INDEX = 4
 COL_CALL_NAME = 1      # B列（コール名検索）
 COL_CUSTOMER_NAME = 3  # D列（顧客名）
+COL_KOKYAKU_NO = 5     # F列（顧客窓口No ※ XXXXXX-XXX 形式）
 COL_MANAGER = 7        # H列（slackメンション先 ※マネ）
 COL_EMAIL = 8          # I列（MGメアド）
 COL_SLACK_CH_ID = 10   # K列（slackチャンネルID）
+
+# 顧客NO 6桁本体を抽出。複数あれば最後の出現を採用（NOは名前の末尾寄りにある前提）。
+# 例: '社内_楽天-gora_100093-003' → '100093'
+#     '社内_プライムクロス_100706'  → '100706'
+_KOKYAKU_RE = re.compile(r"(?<!\d)(\d{6})(?:-\d+)?(?!\d)")
+
+
+def extract_kokyaku_base(text: str) -> str | None:
+    if not text:
+        return None
+    matches = _KOKYAKU_RE.findall(text)
+    return matches[-1] if matches else None
 
 
 class SupervisorResolver:
     def __init__(self):
         self._by_channel_id: dict[str, dict[str, str]] = {}
+        self._by_kokyaku_base: dict[str, dict[str, str]] = {}
         self._by_customer_name: list[tuple[str, dict[str, str]]] = []
         self._loaded = False
 
@@ -55,6 +74,7 @@ class SupervisorResolver:
             if len(row) <= COL_SLACK_CH_ID:
                 continue
             customer_name = (row[COL_CUSTOMER_NAME] or "").strip()
+            kokyaku_no = (row[COL_KOKYAKU_NO] or "").strip() if len(row) > COL_KOKYAKU_NO else ""
             manager = (row[COL_MANAGER] or "").strip()
             email = (row[COL_EMAIL] or "").strip()
             ch_id = (row[COL_SLACK_CH_ID] or "").strip()
@@ -63,6 +83,9 @@ class SupervisorResolver:
             entry = {"name": manager, "email": email}
             if ch_id:
                 self._by_channel_id[ch_id] = entry
+            base = extract_kokyaku_base(kokyaku_no)
+            if base:
+                self._by_kokyaku_base.setdefault(base, entry)
             if customer_name:
                 self._by_customer_name.append((customer_name, entry))
         self._loaded = True
@@ -70,10 +93,19 @@ class SupervisorResolver:
     def resolve_entry(self, channel_id: str, channel_name: str) -> dict | None:
         if not self._loaded:
             return None
+        # ① channel_id 完全マッチ
         if channel_id:
             entry = self._by_channel_id.get(channel_id)
             if entry:
                 return entry
+        # ② 顧客NO 6桁本体マッチ（枝番ズレ/欠落を吸収）
+        if channel_name:
+            base = extract_kokyaku_base(channel_name)
+            if base:
+                entry = self._by_kokyaku_base.get(base)
+                if entry:
+                    return entry
+        # ③ 顧客名セグメント部分マッチ（最後の保険）
         if channel_name:
             segments = [s for s in channel_name.split("_") if len(s) >= 3]
             for customer_name, entry in self._by_customer_name:
