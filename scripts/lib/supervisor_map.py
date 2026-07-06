@@ -5,8 +5,8 @@
 - マスタスプシ「（伊波作業中）1_顧客一覧」を読み、channel_id / 顧客名セグメント → (マネ名, マネメアド) の辞書を作る
 - 検知チャンネルの channel_id (J列) 完全マッチを優先
 - 次に channel_name を "_" 分割し、各セグメントが顧客名 (C列) に含まれるか部分マッチ
-- 解決したマネのメアド (H列) を Slack の users.list 由来の email → user_id 辞書から user_id に変換してメンション化
-- メアドで引けなければマネ名 (G列) → user_id 辞書をフォールバック
+- 解決したマネのメアド (I列) を Slack の users.list 由来の email → user_id 辞書から user_id に変換してメンション化
+- メアドで引けなければマネ名 (H列) → user_id 辞書をフォールバック
 - 一覧で引けない / user_id を解決できない全ケースは DEFAULT_MENTION_EMAIL（宮澤）にフォールバック
 - 宮澤すら user_id を引けなければ None（呼び出し側で【マネージャー】行を出さない＝事故メンション防止）
 """
@@ -27,10 +27,10 @@ DEFAULT_MENTION_EMAIL = "toru_my@nyle.co.jp"
 # データ行は5行目(1-indexed)から。1〜4行目は注釈/見出し。
 DATA_START_ROW_INDEX = 4
 COL_CALL_NAME = 1      # B列（コール名検索）
-COL_CUSTOMER_NAME = 2  # C列（顧客名）
-COL_MANAGER = 6        # G列（slackメンション先 ※マネ）
-COL_EMAIL = 7          # H列（MGメアド）
-COL_SLACK_CH_ID = 9    # J列（slackチャンネルID）
+COL_CUSTOMER_NAME = 3  # D列（顧客名）
+COL_MANAGER = 7        # H列（slackメンション先 ※マネ）
+COL_EMAIL = 8          # I列（MGメアド）
+COL_SLACK_CH_ID = 10   # K列（slackチャンネルID）
 
 
 class SupervisorResolver:
