@@ -131,6 +131,60 @@ class SlackTools:
             print(f"[get_channel_info error] {channel}: {e.response['error']}", flush=True)
             return {}
 
+    def list_joined_channels(self) -> list[dict]:
+        """
+        Bot Token で参加済みチャンネル一覧を返す。
+        戻り値: [{"id": "C...", "name": "社内_xxx"}, ...]
+        """
+        channels = []
+        cursor = None
+        try:
+            while True:
+                resp = self.client.conversations_list(
+                    types="public_channel,private_channel",
+                    cursor=cursor,
+                    limit=200,
+                    exclude_archived=True,
+                )
+                for ch in resp.get("channels", []) or []:
+                    if ch.get("is_member"):
+                        channels.append({"id": ch["id"], "name": ch.get("name", "")})
+                cursor = (resp.get("response_metadata") or {}).get("next_cursor", "")
+                if not cursor:
+                    break
+        except SlackApiError as e:
+            print(f"[list_joined_channels error] {e.response['error']}", flush=True)
+        return channels
+
+    def fetch_channel_messages(
+        self, channel_id: str, after_ts: int, before_ts: int
+    ) -> list[dict]:
+        """
+        Bot Token で conversations.history を叩き after_ts〜before_ts 範囲のメッセージを返す。
+        返信は含まない（親メッセージのみ）。
+        """
+        try:
+            resp = self.client.conversations_history(
+                channel=channel_id,
+                oldest=str(after_ts),
+                latest=str(before_ts),
+                limit=200,
+                inclusive=False,
+            )
+            return resp.get("messages", []) or []
+        except SlackApiError as e:
+            print(f"[fetch_channel_messages error] {channel_id}: {e.response['error']}", flush=True)
+            return []
+
+    def get_permalink(self, channel_id: str, message_ts: str) -> str:
+        """メッセージの permalink を取得。失敗時は空文字。"""
+        try:
+            resp = self.client.chat_getPermalink(channel=channel_id, message_ts=message_ts)
+            return resp.get("permalink", "")
+        except SlackApiError as e:
+            print(f"[get_permalink error] {channel_id}/{message_ts}: {e.response['error']}", flush=True)
+            return ""
+
     def list_users(self) -> dict:
         """
         ワークスペース全ユーザを取得し、display_name/email → user_id の辞書を返す。
