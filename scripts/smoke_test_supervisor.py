@@ -24,17 +24,22 @@ MOCK_ROWS = [
     ["", "コール名検索", "コール名検索（サブ）", "顧客名", "顧客窓口名", "顧客窓口No", "AM", "マネ", "MGメアド", "Slackチャンネル名", "SlackチャンネルID"],
 
     # row 5以降: データ行
-    #    A   B                C   D                       E   F   G   H          I                       J                             K
-    # 三木テスト枠（カバヤ＝channel_id あり）
-    ["", "カバヤ食品",       "", "カバヤ食品株式会社",     "", "", "", "三木美羽", "miu_miki@nyle.co.jp",  "社内_カバヤ食品_100758-001",  "C09PM52KCP4"],
-    # 三木テスト枠（ジェイボックス＝channel_id 空、顧客名マッチのみ）
-    ["", "ジェイボックス",   "", "株式会社ジェイボックス", "", "", "", "三木美羽", "miu_miki@nyle.co.jp",  "",                           ""],
-    # 古市テスト枠
-    ["", "オリックス",       "", "オリックス株式会社",     "", "", "", "古市朱里", "shuri_fr@nyle.co.jp",  "社内_オリックス_100100-001",  "C0XXX_FURUICHI"],
-    # 伊波テスト枠
-    ["", "ダイブ",           "", "株式会社ダイブ",          "", "", "", "伊波利咲", "risaki_iha@nyle.co.jp","社内_ダイブ_100719-001",      "C09MCNAQ0CQ"],
+    #    A   B                C   D                       E    F              G   H            I                        J                                       K
+    # ①channel_id マッチ用
+    ["", "カバヤ食品",       "", "カバヤ食品株式会社",     "", "100758-001",  "", "三木美羽",  "miu_miki@nyle.co.jp",   "社内_カバヤ食品_100758-001",           "C09PM52KCP4"],
+    ["", "オリックス",       "", "オリックス株式会社",     "", "100100-001",  "", "古市朱里",  "shuri_fr@nyle.co.jp",   "社内_オリックス_100100-001",           "C0XXX_FURUICHI"],
+    ["", "ダイブ",           "", "株式会社ダイブ",          "", "100719-001",  "", "伊波利咲",  "risaki_iha@nyle.co.jp", "社内_ダイブ_100719-001",               "C09MCNAQ0CQ"],
+    # ②顧客NO マッチ用（channel_id 空＝①をスキップして②へ）
+    # 楽天: ch末尾枝番(-003) と F列枝番(-004) がズレる → 6桁本体100093で解決
+    ["", "楽天",             "", "楽天グループ株式会社",   "", "100093-004",  "", "板津直前",  "naosaki_it@nyle.co.jp", "社内_楽天-gora-ゴルフ事業_100093-003", ""],
+    # プライムクロス: ch名に枝番なし(100706) / F列=100706-002 → 6桁本体で解決
+    ["", "プライムクロス",   "", "株式会社プライムクロス", "", "100706-002",  "", "小野寺雄大", "yudai_onodera@nyle.co.jp","社内_プライムクロス_100706",          ""],
+    # 旭化成: NOがch名の途中 → 最後の6桁=100414で解決
+    ["", "旭化成ホームズ",   "", "旭化成ホームズ株式会社", "", "100414-001",  "", "板津直前",  "naosaki_it@nyle.co.jp", "社内_旭化成ホームズ_100414-001_旧-旭化成不動産レジデンス", ""],
+    # ③顧客名マッチ用（channel_id 空 & 顧客NO 無し）
+    ["", "ジェイボックス",   "", "株式会社ジェイボックス", "", "",            "", "三木美羽",  "miu_miki@nyle.co.jp",   "",                                     ""],
     # email 空・name のみ（フォールバック検証用）
-    ["", "サンプル名前のみ", "", "サンプル株式会社",        "", "", "", "テスト太郎", "",                  "社内_サンプル_999-001",        "C_NAME_ONLY"],
+    ["", "サンプル名前のみ", "", "サンプル株式会社",        "", "",            "", "テスト太郎", "",                     "社内_サンプル_999-001",                "C_NAME_ONLY"],
     # 短い行（スキップ）
     ["", "短い行", "", "誰か", "x@nyle.co.jp"],
 ]
@@ -44,6 +49,8 @@ USER_ID_BY_EMAIL = {
     "miu_miki@nyle.co.jp": "U_MIKI",
     "shuri_fr@nyle.co.jp": "U_FURUICHI",
     "risaki_iha@nyle.co.jp": "U_IHA",
+    "naosaki_it@nyle.co.jp": "U_ITAZU",
+    "yudai_onodera@nyle.co.jp": "U_ONODERA",
     "toru_my@nyle.co.jp": "U_MIYAZAWA",  # DEFAULT_MENTION_EMAIL（宮澤）
 }
 USER_ID_BY_NAME = {
@@ -63,15 +70,39 @@ def run() -> int:
         else:
             print(f"  ✓ {label}")
 
-    print("=== resolve_entry ===")
+    print("=== ① channel_id 完全マッチ ===")
     check(
-        "channel_id 完全マッチ（カバヤ）",
+        "カバヤ（channel_id マッチ）",
         r.resolve_entry("C09PM52KCP4", "any"),
         {"name": "三木美羽", "email": "miu_miki@nyle.co.jp"},
     )
+
+    print("\n=== ② 顧客NO 6桁本体マッチ ===")
     check(
-        "コール名部分マッチ（ジェイボックス）",
-        r.resolve_entry("", "社内_ジェイボックス_100063-001"),
+        "楽天: ch枝番-003 と F列枝番-004 がズレても6桁本体100093で解決",
+        r.resolve_entry("", "社内_楽天-gora-ゴルフ事業_100093-003"),
+        {"name": "板津直前", "email": "naosaki_it@nyle.co.jp"},
+    )
+    check(
+        "プライムクロス: ch名に枝番なし(100706)でも6桁本体で解決",
+        r.resolve_entry("", "社内_プライムクロス_100706"),
+        {"name": "小野寺雄大", "email": "yudai_onodera@nyle.co.jp"},
+    )
+    check(
+        "旭化成: NOがch名の途中でも最後の6桁100414で解決",
+        r.resolve_entry("", "社内_旭化成ホームズ_100414-001_旧-旭化成不動産レジデンス"),
+        {"name": "板津直前", "email": "naosaki_it@nyle.co.jp"},
+    )
+    check(
+        "未登録の6桁(888888) → ②でマッチしない",
+        r.resolve_entry("", "社内_未登録案件_888888"),
+        None,
+    )
+
+    print("\n=== ③ 顧客名セグメントマッチ ===")
+    check(
+        "ジェイボックス（顧客NO無し → 顧客名マッチ）",
+        r.resolve_entry("", "社内_ジェイボックス_新規案件"),
         {"name": "三木美羽", "email": "miu_miki@nyle.co.jp"},
     )
     check(
@@ -80,7 +111,7 @@ def run() -> int:
         None,
     )
 
-    print("\n=== resolve_mention（メアド経由） ===")
+    print("\n=== resolve_mention（① channel_id → email 解決） ===")
     check(
         "三木（channel_id マッチ → email 解決）",
         r.resolve_mention("C09PM52KCP4", "any", USER_ID_BY_NAME, USER_ID_BY_EMAIL),
@@ -97,10 +128,17 @@ def run() -> int:
         "<@U_IHA>",
     )
 
-    print("\n=== resolve_mention（コール名フォールバック） ===")
+    print("\n=== resolve_mention（② 顧客NO マッチ → email 解決） ===")
     check(
-        "三木（コール名マッチ → email 解決）",
-        r.resolve_mention("", "社内_ジェイボックス_100063-001", USER_ID_BY_NAME, USER_ID_BY_EMAIL),
+        "楽天（顧客NO 6桁本体マッチ → email 解決）",
+        r.resolve_mention("", "社内_楽天-gora-ゴルフ事業_100093-003", USER_ID_BY_NAME, USER_ID_BY_EMAIL),
+        "<@U_ITAZU>",
+    )
+
+    print("\n=== resolve_mention（③ 顧客名マッチ → email 解決） ===")
+    check(
+        "三木（顧客名マッチ → email 解決）",
+        r.resolve_mention("", "社内_ジェイボックス_新規案件", USER_ID_BY_NAME, USER_ID_BY_EMAIL),
         "<@U_MIKI>",
     )
 
