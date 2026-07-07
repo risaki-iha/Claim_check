@@ -260,32 +260,70 @@ def poll_and_match(
 ) -> list[dict]:
     """
     Bot Token で各チャンネルを巡回し、キーワード部分一致で候補メッセージを返す。
+    Pass1: 親メッセージをキーワードマッチ
+    Pass2: 親未マッチ かつ reply_count > 0 のスレッドのみ返信も検索（取りこぼし防止）
     戻り値の形式は search_all_groups と同一（filter_and_dedupe に渡せる）。
     """
     flat_keywords = [(kw, grp) for grp, kws in keyword_groups.items() for kw in kws]
     results = []
+
     for ch in target_channels:
         ch_id = ch["id"]
         ch_name = ch["name"]
         messages = slack.fetch_channel_messages(ch_id, after_ts, before_ts)
+
+        matched_thread_ts: set[str] = set()
+        reply_candidates: list[dict] = []  # Pass2 対象：親未マッチ＆返信あり
+
+        # Pass1: 親メッセージのキーワードマッチ
         for msg in messages:
-            # EXCLUDED_AUTHOR_USER_IDS は filter_and_dedupe で除外するので here は不要
             text = msg.get("text", "")
             matched = next(((kw, grp) for kw, grp in flat_keywords if kw in text), None)
-            if not matched:
-                continue
-            kw, grp = matched
-            thread_ts = msg.get("thread_ts") or msg.get("ts")
-            permalink = slack.get_permalink(ch_id, msg.get("ts", ""))
-            results.append({
-                "channel": {"id": ch_id, "name": ch_name},
-                "ts": msg.get("ts"),
-                "thread_ts": thread_ts,
-                "permalink": permalink,
-                "_keyword": kw,
-                "_group": grp,
-                "user": msg.get("user"),
-            })
+            thread_ts = msg.get("thread_ts") or msg.get("ts", "")
+            if matched:
+                kw, grp = matched
+                permalink = slack.get_permalink(ch_id, msg.get("ts", ""))
+                results.append({
+                    "channel": {"id": ch_id, "name": ch_name},
+                    "ts": msg.get("ts"),
+                    "thread_ts": thread_ts,
+                    "permalink": permalink,
+                    "_keyword": kw,
+                    "_group": grp,
+                    "user": msg.get("user"),
+                })
+                matched_thread_ts.add(thread_ts)
+            elif msg.get("reply_count", 0) > 0:
+                reply_candidates.append(msg)
+
+        # Pass2: 親未マッチ＆返信ありのスレッドのみ返信内もチェック
+        for msg in reply_candidates:
+            thread_ts = msg.get("ts", "")
+            if thread_ts in matched_thread_ts:
+                continue  # Pass1 で既に拾済み
+            replies = slack.read_thread(ch_id, thread_ts)
+            for reply in replies:
+                if reply.get("ts") == thread_ts:
+                    continue  # 親メッセージはPass1処理済み
+                if float(reply.get("ts", 0)) < after_ts:
+                    continue  # 検知範囲外の古い返信はスキップ
+                text = reply.get("text", "")
+                matched = next(((kw, grp) for kw, grp in flat_keywords if kw in text), None)
+                if matched:
+                    kw, grp = matched
+                    permalink = slack.get_permalink(ch_id, thread_ts)
+                    results.append({
+                        "channel": {"id": ch_id, "name": ch_name},
+                        "ts": thread_ts,
+                        "thread_ts": thread_ts,
+                        "permalink": permalink,
+                        "_keyword": kw,
+                        "_group": grp,
+                        "user": msg.get("user"),
+                    })
+                    matched_thread_ts.add(thread_ts)
+                    break  # スレッド1件につき1登録で十分
+
     return results
 
 
