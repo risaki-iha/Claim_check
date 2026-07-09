@@ -2,7 +2,7 @@
 上長メンション解決（マスタスプシから AM 上長を引く）
 
 設計方針:
-- マスタスプシ「（伊波作業中）1_顧客一覧」を読み、channel_id / 顧客NO / 顧客名セグメント → (マネ名, マネメアド) の辞書を作る
+- マスタスプシ「1_顧客一覧」を読み、channel_id / 顧客NO / 顧客名セグメント → (マネ名, マネメアド) の辞書を作る
 - 検知チャンネルの突合は3段構え（上から優先）:
     ① channel_id (K列) 完全マッチ           … 実IDで最も確実
     ② 顧客NO 6桁本体マッチ (F列「顧客窓口No」) … チャンネル名から最後の6桁を抽出して突合。枝番ズレ/欠落を吸収
@@ -23,7 +23,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 MASTER_SPREADSHEET_ID = "1PWqW08yD6shJu5sRUxTZvf7w7K7TaJEuQcDU2QmkZXY"
-MASTER_SHEET_NAME = "（伊波作業中）1_顧客一覧"
+MASTER_SHEET_NAME = "1_顧客一覧"
 
 # 一覧にいない案件、または一覧にはいるが user_id を解決できなかった案件の
 # 上長メンション フォールバック先（宮澤）。
