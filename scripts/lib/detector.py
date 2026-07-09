@@ -75,6 +75,28 @@ def run_detection(config: DetectorConfig) -> None:
             and not any(bad in ch["name"] for bad in ["mdx_", "dxm_", "hajimari"])
         ]
         print(f"[channels] {len(joined)} joined, {len(target_channels)} targets", flush=True)
+
+        # [debug-coverage] botの在室ch漏れ調査（一時的・原因特定後に削除）
+        try:
+            user_joined = slack.list_joined_channels_via_user()
+            user_target = [
+                ch for ch in user_joined
+                if ("社内" in ch["name"] or "社外" in ch["name"])
+                and not any(bad in ch["name"] for bad in ["mdx_", "dxm_", "hajimari"])
+            ]
+            bot_ids = {ch["id"] for ch in target_channels}
+            missing = [ch for ch in user_target if ch["id"] not in bot_ids]
+            print(
+                f"[debug-coverage] user側 {len(user_joined)} joined / {len(user_target)} targets "
+                f"vs bot側 {len(target_channels)} targets / 漏れ {len(missing)}件",
+                flush=True,
+            )
+            if missing:
+                sample = ", ".join(ch["name"] for ch in missing[:15])
+                print(f"[debug-coverage] 漏れch例: {sample}", flush=True)
+        except Exception as e:
+            print(f"[debug-coverage error] {type(e).__name__}: {e!r}", flush=True)
+
         candidates = poll_and_match(slack, target_channels, config.keyword_groups, after_ts, before_ts)
         print(f"[search] {len(candidates)} hits", flush=True)
 

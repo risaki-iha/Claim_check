@@ -156,6 +156,30 @@ class SlackTools:
             print(f"[list_joined_channels error] {e.response['error']}", flush=True)
         return channels
 
+    def list_joined_channels_via_user(self) -> list[dict]:
+        """
+        診断用: User Token 視点で参加済みチャンネル一覧を返す（bot移行後の取りこぼし調査）。
+        """
+        channels = []
+        cursor = None
+        try:
+            while True:
+                resp = self.search_client.conversations_list(
+                    types="public_channel,private_channel",
+                    cursor=cursor,
+                    limit=200,
+                    exclude_archived=True,
+                )
+                for ch in resp.get("channels", []) or []:
+                    if ch.get("is_member"):
+                        channels.append({"id": ch["id"], "name": ch.get("name", "")})
+                cursor = (resp.get("response_metadata") or {}).get("next_cursor", "")
+                if not cursor:
+                    break
+        except SlackApiError as e:
+            print(f"[list_joined_channels_via_user error] {e.response['error']}", flush=True)
+        return channels
+
     def fetch_channel_messages(
         self, channel_id: str, after_ts: int, before_ts: int
     ) -> list[dict]:
