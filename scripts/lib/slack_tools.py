@@ -156,34 +156,28 @@ class SlackTools:
             print(f"[list_joined_channels error] {e.response['error']}", flush=True)
         return channels
 
-    def list_all_visible_channels(self) -> list[dict]:
+    def list_joined_channels_via_user(self) -> list[dict]:
         """
-        診断用: Bot Token から見える全チャンネル（is_member不問）を返す。
-        list_joined_channels と同じAPI呼び出しの結果を is_member でフィルタせず返すだけ
-        （追加のAPIコールは発生しない・追加スコープも不要）。
-        戻り値: [{"id": "C...", "name": "...", "is_member": bool}, ...]
+        診断用: User Token 視点で参加済みチャンネル一覧を返す（bot移行後の取りこぼし調査）。
         """
         channels = []
         cursor = None
         try:
             while True:
-                resp = self.client.conversations_list(
+                resp = self.search_client.conversations_list(
                     types="public_channel,private_channel",
                     cursor=cursor,
                     limit=200,
                     exclude_archived=True,
                 )
                 for ch in resp.get("channels", []) or []:
-                    channels.append({
-                        "id": ch["id"],
-                        "name": ch.get("name", ""),
-                        "is_member": bool(ch.get("is_member")),
-                    })
+                    if ch.get("is_member"):
+                        channels.append({"id": ch["id"], "name": ch.get("name", "")})
                 cursor = (resp.get("response_metadata") or {}).get("next_cursor", "")
                 if not cursor:
                     break
         except SlackApiError as e:
-            print(f"[list_all_visible_channels error] {e.response['error']}", flush=True)
+            print(f"[list_joined_channels_via_user error] {e.response['error']}", flush=True)
         return channels
 
     def fetch_channel_messages(
