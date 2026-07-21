@@ -15,6 +15,7 @@ CONFIG = DetectorConfig(
     detection_type="クレーム",
     notification_channel="C0APPHC8UR5",
     notification_username="Slackクレーム/社内トラブル検知",
+    enable_speaker_bias_test=True,
     skill_path=Path(__file__).parent.parent / "skills" / "claim-detection-realtime.md",
     legacy_header_patterns=[
         "Slack - クレーム検知くん",

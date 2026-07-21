@@ -28,6 +28,57 @@ EXCLUDED_AUTHOR_USER_IDS = {
     "U0B305165M1",  # 議事録転送bot
 }
 
+# ---------- 発話偏り検知（テスト運用・マネ未承認・りさき個人検証中）----------
+# 議事録転送botの投稿（コール名のみの親メッセージ＋本体を含むスレッド返信1件、の2階建て構成）
+# から発話割合を読み取り、ナイル側の発話比率が閾値を超えるMTGを検出する。
+# amptalk API連携なし・AI判定なし＝Slack投稿テキストの正規表現パースのみの軽量機能。
+MINUTES_BOT_USER_ID = "U0B305165M1"
+SPEAKER_BIAS_THRESHOLD_PCT = 90
+_SPEAKER_SECTION_RE = re.compile(r"発話割合[：:]")
+_NYLE_PCT_RE = re.compile(r"ナイル側?(?:約)?(\d+)%")
+_CLIENT_PCT_RE = re.compile(r"顧客側?(?:約)?(\d+)%")
+_CALL_TITLE_RE = re.compile(r"コール名[：:]\s*(.+)")
+
+
+def detect_speaker_bias(
+    slack: SlackTools,
+    target_channels: list[dict],
+    after_ts: int,
+    before_ts: int,
+) -> list[dict]:
+    """議事録転送bot投稿の発話割合を見て、ナイル側発話比率が閾値超えのMTGを返す。"""
+    hits = []
+    for ch in target_channels:
+        ch_id, ch_name = ch["id"], ch["name"]
+        messages = slack.fetch_channel_messages(ch_id, after_ts, before_ts)
+        for msg in messages:
+            if msg.get("user") != MINUTES_BOT_USER_ID:
+                continue
+            thread_ts = msg.get("thread_ts") or msg.get("ts", "")
+            replies = slack.read_thread(ch_id, thread_ts)
+            body = "\n".join(r.get("text", "") for r in replies)
+            sec = _SPEAKER_SECTION_RE.search(body)
+            if not sec:
+                continue
+            tail = body[sec.end(): sec.end() + 300]
+            nyle_m = _NYLE_PCT_RE.search(tail)
+            if not nyle_m:
+                continue
+            nyle_pct = int(nyle_m.group(1))
+            if nyle_pct < SPEAKER_BIAS_THRESHOLD_PCT:
+                continue
+            client_m = _CLIENT_PCT_RE.search(tail)
+            title_m = _CALL_TITLE_RE.search(body)
+            permalink = slack.get_permalink(ch_id, msg.get("ts", ""))
+            hits.append({
+                "channel_name": ch_name,
+                "nyle_pct": nyle_pct,
+                "client_pct": int(client_m.group(1)) if client_m else None,
+                "title": title_m.group(1).strip() if title_m else "",
+                "permalink": permalink,
+            })
+    return hits
+
 
 @dataclass
 class DetectorConfig:
@@ -39,6 +90,7 @@ class DetectorConfig:
     legacy_header_patterns: list  # 過去通知ヘッダーの正規表現
     notification_username: str = ""  # Slack投稿時の表示名（空ならBotデフォルト名）。chat:write.customize スコープ必須
     header_emoji: str = "⚡"  # ヘッダー先頭の絵文字
+    enable_speaker_bias_test: bool = False  # 発話偏り検知（テスト運用）を有効化するか。両検知くんが同一chに通知するため片方のみで有効化する
 
 
 def run_detection(config: DetectorConfig) -> None:
@@ -123,10 +175,16 @@ def run_detection(config: DetectorConfig) -> None:
 
         # 5.5 同一スレッド内で複数論点が出た場合は1件に集約
         results = merge_results_by_thread(results)
+
+        # 5.6 発話偏り検知（テスト運用・有効な検知くんのみ）
+        speaker_bias_hits: list[dict] = []
+        if config.enable_speaker_bias_test:
+            speaker_bias_hits = detect_speaker_bias(slack, target_channels, after_ts, before_ts)
+            print(f"[speaker-bias] {len(speaker_bias_hits)} hits (test, threshold={SPEAKER_BIAS_THRESHOLD_PCT}%)", flush=True)
         print(f"[merge] {len(results)} detections after thread merge", flush=True)
 
         # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
-        if results:
+        if results or speaker_bias_hits:
             # 上長メンション解決の準備（失敗時は【マネージャー】行を出さない）
             resolver = SupervisorResolver()
             try:
@@ -142,7 +200,8 @@ def run_detection(config: DetectorConfig) -> None:
             user_maps = slack.list_users() if resolver else {"by_name": {}, "by_email": {}}
 
             notification_text = build_notification_text(
-                config, results, after_ts, before_ts, resolver, user_maps
+                config, results, after_ts, before_ts, resolver, user_maps,
+                speaker_bias_hits=speaker_bias_hits,
             )
             slack.post_message(
                 config.notification_channel,
@@ -151,10 +210,11 @@ def run_detection(config: DetectorConfig) -> None:
             )
             print("[notify] posted", flush=True)
 
-            # 7. スプシ書き込み
-            rows = build_sheet_rows(results, config)
-            appended = sheets.append_rows(rows)
-            print(f"[sheets] appended {appended} rows", flush=True)
+            # 7. スプシ書き込み（発話偏り検知はテスト運用のためスプシ記録なし）
+            if results:
+                rows = build_sheet_rows(results, config)
+                appended = sheets.append_rows(rows)
+                print(f"[sheets] appended {appended} rows", flush=True)
         else:
             print("[notify] 検知0件のため通知スキップ", flush=True)
     finally:
@@ -562,12 +622,15 @@ def build_notification_text(
     before_ts: int,
     resolver: SupervisorResolver | None = None,
     user_maps: dict | None = None,
+    speaker_bias_hits: list[dict] | None = None,
 ) -> str:
     period = format_period(after_ts, before_ts)
     # Slack の mrkdwn は *text* で太字（** ではなく * 1個）
     header = f"{config.header_emoji} *Slack - {config.name}* {config.header_emoji}\n検知期間：{period}"
 
-    if not results:
+    speaker_bias_hits = speaker_bias_hits or []
+
+    if not results and not speaker_bias_hits:
         return f"{header}\n✅ 検知なし"
 
     by_importance = {"🔴 即対応・上長報告": [], "🟡 要対応・要確認": [], "🔵 情報共有": []}
@@ -612,6 +675,25 @@ def build_notification_text(
             parts.append("【概要】")
             parts.append(r.get("summary", ""))
             parts.append(f"🔗 <{r.get('permalink', '')}|スレッドを見る>")
+
+    if speaker_bias_hits:
+        parts.append("")
+        parts.append("")
+        parts.append(f"*━━ 🗣️ 発話偏り検知（テスト運用中） ({len(speaker_bias_hits)}件) ━━*")
+        for i, h in enumerate(speaker_bias_hits):
+            if i > 0:
+                parts.append("")
+                parts.append("─" * 20)
+                parts.append("")
+            else:
+                parts.append("")
+            parts.append(f"*{h.get('channel_name', '')}*")
+            if h.get("title"):
+                parts.append(f"【MTG】{h['title']}")
+            client_pct = h.get("client_pct")
+            client_str = f"{client_pct}%" if client_pct is not None else "-"
+            parts.append(f"【発話割合】ナイル{h.get('nyle_pct')}% / 顧客{client_str}")
+            parts.append(f"🔗 <{h.get('permalink', '')}|投稿を見る>")
 
     return "\n".join(parts)
 
