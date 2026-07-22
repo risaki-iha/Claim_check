@@ -681,7 +681,7 @@ def build_notification_text(
     if speaker_bias_hits:
         parts.append("")
         parts.append("")
-        parts.append(f"*━━ 🗣️ 発話偏り検知（テスト運用中） ({len(speaker_bias_hits)}件) ━━*")
+        parts.append(f"*━━ 💬 発話偏り検知（テスト運用中） ({len(speaker_bias_hits)}件) ━━*")
         for i, h in enumerate(speaker_bias_hits):
             if i > 0:
                 parts.append("")
