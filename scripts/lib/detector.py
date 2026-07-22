@@ -176,11 +176,13 @@ def run_detection(config: DetectorConfig) -> None:
         # 5.5 同一スレッド内で複数論点が出た場合は1件に集約
         results = merge_results_by_thread(results)
 
-        # 5.6 発話偏り検知（テスト運用・有効な検知くんのみ）
+        # 5.6 発話偏り検知（テスト運用・有効な検知くんのみ・社外MTGのみ対象）
+        # 社内MTGはナイル側発話が多くなるのが当然のため、必然的に拾われて通知ノイズになる→除外
         speaker_bias_hits: list[dict] = []
         if config.enable_speaker_bias_test:
-            speaker_bias_hits = detect_speaker_bias(slack, target_channels, after_ts, before_ts)
-            print(f"[speaker-bias] {len(speaker_bias_hits)} hits (test, threshold={SPEAKER_BIAS_THRESHOLD_PCT}%)", flush=True)
+            external_channels = [ch for ch in target_channels if "社外" in ch["name"]]
+            speaker_bias_hits = detect_speaker_bias(slack, external_channels, after_ts, before_ts)
+            print(f"[speaker-bias] {len(speaker_bias_hits)} hits (test, threshold={SPEAKER_BIAS_THRESHOLD_PCT}%, 社外ch {len(external_channels)}件)", flush=True)
         print(f"[merge] {len(results)} detections after thread merge", flush=True)
 
         # 6. Slack 通知送信（検知0件の時はスキップして通知ノイズを減らす）
