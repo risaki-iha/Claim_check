@@ -33,7 +33,7 @@ EXCLUDED_AUTHOR_USER_IDS = {
 # から発話割合を読み取り、ナイル側の発話比率が閾値を超えるMTGを検出する。
 # amptalk API連携なし・AI判定なし＝Slack投稿テキストの正規表現パースのみの軽量機能。
 MINUTES_BOT_USER_ID = "U0B305165M1"
-SPEAKER_BIAS_THRESHOLD_PCT = 90
+SPEAKER_BIAS_THRESHOLD_PCT = 85
 _SPEAKER_SECTION_RE = re.compile(r"発話割合[：:]")
 _NYLE_PCT_RE = re.compile(r"ナイル側?(?:約)?(\d+)%")
 _CLIENT_PCT_RE = re.compile(r"顧客側?(?:約)?(\d+)%")
