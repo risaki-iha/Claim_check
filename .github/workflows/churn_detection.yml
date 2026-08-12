@@ -18,7 +18,7 @@ on:
 jobs:
   detect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     concurrency:
       group: churn-detection
       cancel-in-progress: false
