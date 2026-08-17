@@ -1,0 +1,36 @@
+name: 【診断・一時】検知方式の比較調査
+
+on:
+  workflow_dispatch:
+    inputs:
+      custom_after:
+        description: "比較窓の開始（JST、例: 2026-08-17 09:00）。空なら直近6時間"
+        required: false
+        default: ""
+      custom_before:
+        description: "比較窓の終了（JST、例: 2026-08-17 15:00）。空なら現在時刻"
+        required: false
+        default: ""
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run comparison (Slack投稿・スプシ書込なし)
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
+          CUSTOM_AFTER: ${{ github.event.inputs.custom_after }}
+          CUSTOM_BEFORE: ${{ github.event.inputs.custom_before }}
+        run: python scripts/diag_compare_search_methods.py
