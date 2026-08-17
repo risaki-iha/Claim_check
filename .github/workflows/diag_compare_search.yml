@@ -11,6 +11,10 @@ on:
         description: "比較窓の終了（JST、例: 2026-08-17 15:00）。空なら現在時刻"
         required: false
         default: ""
+      script:
+        description: "実行するスクリプト名（scripts/配下）"
+        required: false
+        default: "diag_compare_search_methods.py"
 
 jobs:
   diag:
@@ -27,10 +31,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run comparison (Slack投稿・スプシ書込なし)
+      - name: Run diagnostic (Slack投稿・スプシ書込なし)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
+          GOOGLE_SHEETS_KEY: ${{ secrets.GOOGLE_SHEETS_KEY }}
           CUSTOM_AFTER: ${{ github.event.inputs.custom_after }}
           CUSTOM_BEFORE: ${{ github.event.inputs.custom_before }}
-        run: python scripts/diag_compare_search_methods.py
+        run: python scripts/${{ github.event.inputs.script }}
